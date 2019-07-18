@@ -1,11 +1,10 @@
 """Gaussian process modelling of player skills."""
 
 
-import math
 import numpy as np
+import progressbar
 import scipy.spatial.distance
 import scipy.stats
-import sys
 
 
 def exp_cov_mat(x, scale=1.0):
@@ -18,23 +17,27 @@ def exp_cov_mat(x, scale=1.0):
 
     A good scale is could be 2 years.
     """
-    condensed_d = scipy.spatial.distance.pdist(np.array(x)[:, np.newaxis],
-                                               'minkowski', p=1.0)
+    squeezed_dist = scipy.spatial.distance.pdist(np.array(x)[:, np.newaxis],
+                                                 'minkowski', p=1.0)
     covar_mat = scipy.spatial.distance.squareform(
-        math.exp(-condensed_d / scale))
+        np.exp(-squeezed_dist / scale))
+    covar_mat += np.diag(np.repeat(1.0, covar_mat.shape[0]))
     return covar_mat
 
 
 def win_prob(skill_diff, scaling_factor=0.2):
     """Win probability for a match given a skill differential.
 
-    Computed as 1 / (1 + math.exp(-skill_diff * scaling_factor)).
+    Computed as 1 / (1 + np.exp(-skill_diff * scaling_factor)).
 
     If the skill difference of a team is 2 (i.e. 2 SDs of one player),
     and we wanted this to lead to a 60% edge, the scaling factor should be
     around 0.2.
+
+    The value of 0.2 also corresponds to a difference of 10 points
+    resulting in a win rate of 85-90%.
     """
-    win_prob = 1 / (1 + math.exp(skill_diff * scaling_factor))
+    win_prob = 1 / (1 + np.exp(skill_diff * scaling_factor))
     return win_prob
 
 
@@ -42,7 +45,7 @@ def _played_vec_to_cov_mat(cov_func, played_vec):
     return cov_func(played_vec)
 
 
-def _compute_cov_mats(cov_func, time, played_mat):
+def _compute_cov_mats(cov_func, time, played_mat, delta=1e-9):
     """Compute covariance matrices for each player.
 
     Args:
@@ -52,16 +55,21 @@ def _compute_cov_mats(cov_func, time, played_mat):
             players. The value indicates whether a player played in a game.
         time (numpy.ndarray): An 1D array of times or locations
             corresponding to each row in `played_mat`.
+        delta (float): Add a small delta to make sure the matrix if positive
+            semidefinite.
     """
     cov_mats = []
     for col_idx in range(played_mat.shape[1]):
         played_idx = played_mat[:, col_idx]
-        cov_mats.append(_played_vec_to_cov_mat(cov_func, time[played_idx]))
+        cov_mat = _played_vec_to_cov_mat(cov_func, time[played_idx])
+        cov_mat += np.diag(np.repeat(delta, cov_mat.shape[0]))
+        cov_mats.append(cov_mat)
+    return cov_mats
 
 
 def _initialise_skills(players_mat, n_cols, radiant_win):
     """Initialise skills."""
-    random_skills = np.sort(np.random.normal(size=10 * players_mat.shape[0]))
+    random_skills = np.random.normal(size=10 * players_mat.shape[0])
     return random_skills
 
 
@@ -84,6 +92,8 @@ class SkillsGP:
             function.
         propose_sd (float): Standard deviation for the proposal Gaussian
             distribution.
+        save_every_n_iter (int): Save iterations every how many iterations?
+            Default: 100.
 
     Attributes:
         M (int): Number of matches.
@@ -100,11 +110,10 @@ class SkillsGP:
             with 0.0 mean and a covariance of `self.cov_mat[k]`. Log-prior
             probability for a vector `x` for the *k*'th player can be
             computed using ``self.cov_mat[k].logpdf(x)``
-        skills (list): A list of 1D arrays of length 10 * *M* skills for
-            each iteration. To convert into *M* * *N* matrix, use
-            self.to_mat(). Skills fill the matrix row by row.
-        log_posterior (list): A list of the Bayesian formula (log) numerator
-            values for each corresponding vector of skills in `self.skills`.
+        samples (list): A list of tuples with values of (<iteration number>,
+            <skills vector>, <log_posterior>). To convert a skills vector
+            into a *M* * *N* matrix, use ``self.to_mat(skills_vec)``.
+            Skills fill the matrix row by row.
     """
 
     COV_FUNCS = {
@@ -112,7 +121,8 @@ class SkillsGP:
     }
 
     def __init__(self, players_mat, start_times, radiant_win, player_ids,
-                 cov_func_name, cov_func_kwargs=None, propose_sd=0.2):
+                 cov_func_name, cov_func_kwargs=None, propose_sd=0.2,
+                 save_every_n_iter=100):
         # Some basic sanity checks.
         # 10 players per game?
         # assert all(np.nansum(np.abs(players_mat), 1) == 10)
@@ -124,26 +134,32 @@ class SkillsGP:
         self.start_times = start_times
         self.player_ids = player_ids
         self.propose_sd = propose_sd
+        self.save_every_n_iter = save_every_n_iter
 
         # Save computed values.
-        sys.stderr.write("\rComputing self.radiant_win...\n")
+        print("Computing self.radiant_win...")
         self.radiant_win = np.where(radiant_win, 1, 0)
-        sys.stderr.write("\rComputing self.nanmask...\n")
+        print("Computing self.nanmask...")
         self.nanmask = players_mat == 0
-        sys.stderr.write("\rComputing self.flat_nanmask...\n")
+        print("Computing self.flat_nanmask...")
         self.flat_nanmask = self.nanmask.reshape(-1)
-        sys.stderr.write("\rComputing self.cov_func...\n")
+        print("Computing self.cov_func...")
         self.cov_func = lambda x: self.COV_FUNCS[cov_func_name](
             x, **cov_func_kwargs)
-        sys.stderr.write("\rComputing self.cov_mat...\n")
+        print("Computing self.cov_mat...")
         self.cov_mat = _compute_cov_mats(self.cov_func, self.start_times,
                                          ~self.nanmask)
-        sys.stderr.write("\rComputing self.prior_logprob...\n")
-        self.prior_logprob = [scipy.stats.multivariate_normal()]
+        print("Computing self.prior_multinorm...")
+        self.prior_multinorm = []
+        for i in range(len(self.cov_mat)):
+            self.prior_multinorm.append(
+                scipy.stats.multivariate_normal(cov=self.cov_mat[i]))
 
         # Initialise other variables.
-        self.skills = []
-        self.log_posterior = []
+        self.samples = []
+        self._cur_skills = None
+        self._cur_log_posterior = None
+        self._cur_iter = 0
 
     def to_mat(self, vec):
         """Fill a vector of values into the slots in self.play_mask."""
@@ -158,9 +174,9 @@ class SkillsGP:
 
     def _propose_next(self):
         """Take the latest skills vector and propose the next vector."""
-        if len(self.skills) == 0:
+        if len(self.samples) == 0:
             return self._initialise_skills()
-        prev_skills = self.skills[-1]
+        prev_skills = self.samples[-1][1]
         next_skills = np.random.normal(prev_skills, self.propose_sd)
         return next_skills
 
@@ -169,35 +185,55 @@ class SkillsGP:
         player_prior_logprobs = []
         for i in range(self.N):
             skills_vec = skills_mat[:, i]
-            logprob = self.prior_logprob[i](skills_vec[~np.isnan(skills_vec)])
+            logprob = self.prior_multinorm[i].logpdf(
+                skills_vec[~np.isnan(skills_vec)])
             player_prior_logprobs.append(logprob)
         return player_prior_logprobs
 
     def _match_loglik(self, skills_mat):
         """Log-likelihood of the observed outcomes."""
-        match_skills_diff = -(self.players_mat * skills_mat).nansum(1)
+        match_skills_diff = np.nansum(-(self.players_mat * skills_mat), 1)
         match_win_prob = win_prob(match_skills_diff)
         match_loglik = scipy.stats.bernoulli.logpmf(self.radiant_win,
                                                     match_win_prob)
         return match_loglik
 
-    def iterate(self):
-        """Perform a Metropolis-Hastings iteration."""
-        next_skills = self._propose_next()
-        next_skills_mat = self.to_mat(next_skills)
-        next_prior_logprob = sum(
-            self._skills_mat_prior_logprob(next_skills_mat))
-        next_loglik = np.sum(self._match_loglik(next_skills_mat))
-        next_logposterior = next_prior_logprob + next_loglik
+    def compute_log_posterior(self, skills_vec):
+        """Compute the log posterior probability of the skills vector."""
+        assert len(skills_vec) == self.M * 10
+        skills_mat = self.to_mat(skills_vec)
+        prior_logprob = sum(
+            self._skills_mat_prior_logprob(skills_mat))
+        loglik = np.sum(self._match_loglik(skills_mat))
+        log_posterior = prior_logprob + loglik
+        return log_posterior
 
-        if len(self.skills) == 0:
+    def iterate_once(self):
+        """Perform a Metropolis-Hastings iteration."""
+        proposed_skills = self._propose_next()
+        proposed_log_posterior = self.compute_log_posterior(proposed_skills)
+
+        # Transition to a new state?
+        if len(self.samples) == 0:
             transition = True
         else:
-            bayes_factor = math.exp(next_logposterior - self.log_posterior[-1])
-            if np.random.uniform() > bayes_factor:
+            log_bayes_factor = \
+                proposed_log_posterior - self._cur_log_posterior
+            if np.log(np.random.uniform()) < log_bayes_factor:
                 transition = True
             else:
                 transition = False
         if transition:
-            self.skills.append(next_skills)
-            self.log_posterior.append(next_logposterior)
+            self._cur_skills = proposed_skills
+            self._cur_log_posterior = proposed_log_posterior
+
+        # Save the current iteration as a sample?
+        if self._cur_iter % self.save_every_n_iter == 0:
+            self.samples.append((self._cur_iter, self._cur_skills,
+                                 self._cur_log_posterior))
+        self._cur_iter += 1
+
+    def iterate(self, n=1):
+        """Iterate n times."""
+        for i in progressbar.progressbar(range(n)):
+            self.iterate_once()
