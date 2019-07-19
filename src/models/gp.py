@@ -26,7 +26,10 @@ def exp_cov_mat(x, scale=1.0):
 
 
 def win_prob(skill_diff, scaling_factor=0.2):
-    """Win probability for a match given a skill differential.
+    """Win probability for radiant given a skill difference.
+
+    skill_diff is positive when radiant has a higher skill, i.e.
+    `skill_diff` > 0 => win probability >= 50%.
 
     Computed as 1 / (1 + np.exp(-skill_diff * scaling_factor)).
 
@@ -37,8 +40,15 @@ def win_prob(skill_diff, scaling_factor=0.2):
     The value of 0.2 also corresponds to a difference of 10 points
     resulting in a win rate of 85-90%.
     """
-    win_prob = 1 / (1 + np.exp(skill_diff * scaling_factor))
+    win_prob = 1 / (1 + np.exp(-skill_diff * scaling_factor))
     return win_prob
+
+
+def compute_match_win_prob(players_mat, skills_mat):
+    """Compute the win probability of each match."""
+    match_skills_diff = np.nansum(players_mat * skills_mat, 1)
+    match_win_prob = win_prob(match_skills_diff)
+    return match_win_prob
 
 
 def _played_vec_to_cov_mat(cov_func, played_vec):
@@ -137,19 +147,13 @@ class SkillsGP:
         self.save_every_n_iter = save_every_n_iter
 
         # Save computed values.
-        print("Computing self.radiant_win...")
         self.radiant_win = np.where(radiant_win, 1, 0)
-        print("Computing self.nanmask...")
         self.nanmask = players_mat == 0
-        print("Computing self.flat_nanmask...")
         self.flat_nanmask = self.nanmask.reshape(-1)
-        print("Computing self.cov_func...")
         self.cov_func = lambda x: self.COV_FUNCS[cov_func_name](
             x, **cov_func_kwargs)
-        print("Computing self.cov_mat...")
         self.cov_mat = _compute_cov_mats(self.cov_func, self.start_times,
                                          ~self.nanmask)
-        print("Computing self.prior_multinorm...")
         self.prior_multinorm = []
         for i in range(len(self.cov_mat)):
             self.prior_multinorm.append(
@@ -185,15 +189,14 @@ class SkillsGP:
         player_prior_logprobs = []
         for i in range(self.N):
             skills_vec = skills_mat[:, i]
-            logprob = self.prior_multinorm[i].logpdf(
-                skills_vec[~np.isnan(skills_vec)])
+            skills_vec_f = skills_vec[~np.isnan(skills_vec)]
+            logprob = self.prior_multinorm[i].logpdf(skills_vec_f)
             player_prior_logprobs.append(logprob)
         return player_prior_logprobs
 
     def _match_loglik(self, skills_mat):
         """Log-likelihood of the observed outcomes."""
-        match_skills_diff = np.nansum(-(self.players_mat * skills_mat), 1)
-        match_win_prob = win_prob(match_skills_diff)
+        match_win_prob = compute_match_win_prob(self.players_mat, skills_mat)
         match_loglik = scipy.stats.bernoulli.logpmf(self.radiant_win,
                                                     match_win_prob)
         return match_loglik
@@ -211,7 +214,14 @@ class SkillsGP:
     def iterate_once(self):
         """Perform a Metropolis-Hastings iteration."""
         proposed_skills = self._propose_next()
-        proposed_log_posterior = self.compute_log_posterior(proposed_skills)
+        # TODO
+        # proposed_log_posterior = self.compute_log_posterior(proposed_skills)
+        assert len(proposed_skills) == self.M * 10
+        skills_mat = self.to_mat(proposed_skills)
+        prior_logprob = sum(
+            self._skills_mat_prior_logprob(skills_mat))
+        loglik = np.sum(self._match_loglik(skills_mat))
+        proposed_log_posterior = prior_logprob + loglik
 
         # Transition to a new state?
         if len(self.samples) == 0:
@@ -230,7 +240,8 @@ class SkillsGP:
         # Save the current iteration as a sample?
         if self._cur_iter % self.save_every_n_iter == 0:
             self.samples.append((self._cur_iter, self._cur_skills,
-                                 self._cur_log_posterior))
+                                 self._cur_log_posterior, prior_logprob,
+                                 loglik))
         self._cur_iter += 1
 
     def iterate(self, n=1):
