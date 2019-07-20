@@ -158,7 +158,7 @@ class SkillsGP:
         samples (list): A list of tuples with values of (<iteration number>,
             <skills vector>, <log_posterior>). To convert a skills vector
             into a *M* * *N* matrix, use
-            ``self.skills_vec_transpose(skills_vec)``.
+            ``self.skills_vec_to_mat(skills_vec)``.
     """
 
     COV_FUNCS = {
@@ -221,7 +221,7 @@ class SkillsGP:
     def compute_log_posterior(self, skills_vec):
         """Compute the log posterior probability of the skills vector."""
         assert len(skills_vec) == self.M * 10
-        skills_mat = self.skills_vec_transpose(skills_vec)
+        skills_mat = self.skills_vec_to_mat(skills_vec)
         prior_logprob = sum(
             self._skills_mat_prior_logprob(skills_mat))
         loglik = np.sum(self._match_loglik(skills_mat))
@@ -234,7 +234,7 @@ class SkillsGP:
         # TODO
         # proposed_log_posterior = self.compute_log_posterior(proposed_skills)
         assert len(proposed_skills) == self.M * 10
-        skills_mat = self.skills_vec_transpose(proposed_skills)
+        skills_mat = self.skills_vec_to_mat(proposed_skills)
         prior_logprob = sum(
             self._skills_mat_prior_logprob(skills_mat))
         loglik = np.sum(self._match_loglik(skills_mat))
