@@ -29,7 +29,7 @@ def player_id_to_player_name(player_ids, player_names, team_ids, team_names):
         {
             "name": list(itertools.chain.from_iterable(list(player_names))),
             "team": np.repeat(team_names.values, [5] * len(team_names)),
-            "team_id": np.repeat(team_names.values, [5] * len(team_ids))
+            "team_id": np.repeat(team_ids.values, [5] * len(team_ids))
         },
         index=itertools.chain.from_iterable(list(player_ids)))
     return output_series[~output_series.index.duplicated(keep='first')]
