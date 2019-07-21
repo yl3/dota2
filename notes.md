@@ -1,6 +1,6 @@
 # Notes
 
-## 2019-07-18
+## 2019-07-19
 
 Previous attempt on MCMC sampling of the model was marred by a poor proposal distribution that proposed samples that were highly implausible for the covaried normal distributions.
 

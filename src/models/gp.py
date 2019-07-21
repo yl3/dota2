@@ -118,6 +118,11 @@ def _c_to_r_idx(bool_mat):
     return idx
 
 
+def _dropna(a):
+    """Drop nans from a 1D numpy array."""
+    return a[~np.isnan(a)]
+
+
 class SkillsGP:
     """A Gaussian process for skills.
 
@@ -154,7 +159,7 @@ class SkillsGP:
         prior_logprob (list): List of random multivariate normal variables
             with 0.0 mean and a covariance of `self.cov_mat[k]`. Log-prior
             probability for a vector `x` for the *k*'th player can be
-            computed using ``self.cov_mat[k].logpdf(x)``
+            computed using ``self.prior_multinorm[k](x)``
         samples (list): A list of tuples with values of (<iteration number>,
             <skills vector>, <log_posterior>). To convert a skills vector
             into a *M* * *N* matrix, use
@@ -166,21 +171,30 @@ class SkillsGP:
     }
 
     def _initialise_skills(self):
-        """Initialise skills."""
+        """Initialise skills.
+
+        Returns:
+            tuple: A sample compatible with :attr:`samples`.
+        """
         # return _initialise_skills(self.players_mat, self.N, self.radiant_win)
-        return np.repeat(0.0, self.M * 10)
+        initial_skills = np.repeat(0.0, self.M * 10)
+        log_prob = self.compute_log_posterior(initial_skills)
+        return (0, initial_skills, log_prob)
+
+    def _propose_move_for_player(self, k):
+        """Propose a move for a player.
+
+        I.e. for column `k` in self.player_mat.
+        """
+        cov_mat = self.cov_mat[k]
+        move = np.random.multivariate_normal(np.repeat(0.0, cov_mat.shape[0]),
+                                             cov_mat * (self.propose_sd ** 2))
+        return move
 
     def _propose_next(self):
         """Take the latest skills vector and propose the next vector."""
-        if len(self.samples) == 0:
-            return self._initialise_skills()
-        prev_skills = self.samples[-1][1]
-        next_moves = []
-        for cov_mat in self.cov_mat:
-            next_moves.append(
-                np.random.multivariate_normal(
-                    np.repeat(0.0, cov_mat.shape[0]),
-                    cov_mat * self.propose_sd))
+        prev_skills = self._cur_skills
+        next_moves = [self._propose_move_for_player(k) for k in range(self.N)]
         next_moves = np.concatenate(next_moves)
         # next_moves is now in column-to-column order. Change that into
         # row-by-row order.
@@ -193,8 +207,8 @@ class SkillsGP:
         player_prior_logprobs = []
         for i in range(self.N):
             skills_vec = skills_mat[:, i]
-            skills_vec_f = skills_vec[~np.isnan(skills_vec)]
-            logprob = self.prior_multinorm[i].logpdf(skills_vec_f)
+            skills_vec_f = _dropna(skills_vec)
+            logprob = self.prior_multinorm[i](skills_vec_f)
             player_prior_logprobs.append(logprob)
         return player_prior_logprobs
 
@@ -228,8 +242,63 @@ class SkillsGP:
         log_posterior = prior_logprob + loglik
         return log_posterior
 
-    def iterate_once(self):
-        """Perform a Metropolis-Hastings iteration."""
+    def iterate_once_player_wise(self):
+        """Perform a block-wise iteration across all players."""
+        old_skills_mat = self.skills_vec_to_mat(self._cur_skills)
+        transitioned_skills_mat = old_skills_mat.copy()
+        for i in range(self.N):
+            # Compute the prior probability portion.
+            next_move = self._propose_move_for_player(i)
+            old_skills_vec = _dropna(old_skills_mat[:, i])
+            new_skills_vec = old_skills_vec + next_move
+            old_prior_lprob = self.prior_multinorm[i](old_skills_vec)
+            new_prior_lprob = self.prior_multinorm[i](new_skills_vec)
+
+            # Compute the match likelihood portion.
+            affected_matches = ~self.nanmask[:, i]
+            old_match_win_prob = compute_match_win_prob(
+                self.players_mat[affected_matches, :],
+                old_skills_mat[affected_matches, :])
+            new_skills_mat = transitioned_skills_mat[affected_matches, :]
+            new_skills_mat[:, i] = new_skills_vec
+            old_match_loglik = scipy.stats.bernoulli.logpmf(
+                self.radiant_win[affected_matches],
+                old_match_win_prob)
+            new_match_win_prob = compute_match_win_prob(
+                self.players_mat[affected_matches, :], new_skills_mat)
+            new_match_loglik = scipy.stats.bernoulli.logpmf(
+                self.radiant_win[affected_matches],
+                new_match_win_prob)
+
+            # Transition?
+            log_bayes_factor = (new_prior_lprob - old_prior_lprob
+                                + sum(new_match_loglik) - sum(old_match_loglik))
+            if np.log(np.random.uniform()) < log_bayes_factor:
+                idx = ~self.nanmask[:, i]
+                transitioned_skills_mat[idx, i] = new_skills_vec
+        transitioned_skills_vec = _dropna(transitioned_skills_mat.reshape(-1))
+        # TODO
+        # proposed_log_posterior = self.compute_log_posterior(transitioned_skills_vec)
+        assert len(transitioned_skills_vec) == self.M * 10
+        prior_logprob = sum(
+            self._skills_mat_prior_logprob(transitioned_skills_mat))
+        loglik = np.sum(self._match_loglik(transitioned_skills_mat))
+        new_log_posterior = prior_logprob + loglik
+
+        # self._cur_skills won't change, if transitioned_skills_mat doesn't
+        # change, which happens when no player's vector got updated.
+        self._cur_skills = transitioned_skills_vec
+        self._cur_log_posterior = new_log_posterior
+        self._cur_iter += 1
+
+        # Save the current iteration as a sample?
+        if self._cur_iter % self.save_every_n_iter == 0:
+            self.samples.append((self._cur_iter, self._cur_skills,
+                                 self._cur_log_posterior, prior_logprob,
+                                 loglik))
+
+    def iterate_once_full(self):
+        """Perform a full Metropolis iteration."""
         proposed_skills = self._propose_next()
         # TODO
         # proposed_log_posterior = self.compute_log_posterior(proposed_skills)
@@ -241,30 +310,28 @@ class SkillsGP:
         proposed_log_posterior = prior_logprob + loglik
 
         # Transition to a new state?
-        if len(self.samples) == 0:
-            transition = True
-        else:
-            log_bayes_factor = \
-                proposed_log_posterior - self._cur_log_posterior
-            if np.log(np.random.uniform()) < log_bayes_factor:
-                transition = True
-            else:
-                transition = False
-        if transition:
+        log_bayes_factor = proposed_log_posterior - self._cur_log_posterior
+        if np.log(np.random.uniform()) < log_bayes_factor:
             self._cur_skills = proposed_skills
             self._cur_log_posterior = proposed_log_posterior
+        self._cur_iter += 1
 
         # Save the current iteration as a sample?
         if self._cur_iter % self.save_every_n_iter == 0:
             self.samples.append((self._cur_iter, self._cur_skills,
                                  self._cur_log_posterior, prior_logprob,
                                  loglik))
-        self._cur_iter += 1
 
-    def iterate(self, n=1):
+    def iterate(self, n=1, method="full"):
         """Iterate n times."""
-        for i in progressbar.progressbar(range(n)):
-            self.iterate_once()
+        if method == "full":
+            for i in progressbar.progressbar(range(n)):
+                self.iterate_once_full()
+        elif method == "playerwise":
+            for i in progressbar.progressbar(range(n)):
+                self.iterate_once_player_wise()
+        else:
+            raise ValueError(f"Iteration method '{method}' not recognised.")
 
     def __init__(self, players_mat, start_times, radiant_win, player_ids,
                  cov_func_name, cov_func_kwargs=None, propose_sd=0.2,
@@ -294,10 +361,9 @@ class SkillsGP:
         self.prior_multinorm = []
         for i in range(len(self.cov_mat)):
             self.prior_multinorm.append(
-                scipy.stats.multivariate_normal(cov=self.cov_mat[i]))
+                scipy.stats.multivariate_normal(cov=self.cov_mat[i]).logpdf)
 
         # Initialise other variables.
-        self.samples = []
-        self._cur_skills = None
-        self._cur_log_posterior = None
-        self._cur_iter = 0
+        temp_tuple = self._initialise_skills()
+        self._cur_iter, self._cur_skills, self.cur_log_posterior = temp_tuple
+        self.samples = [temp_tuple]

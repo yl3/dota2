@@ -28,8 +28,10 @@ def parse_args():
                         help="Scaling factor for covariance function (in ms). "
                              "Default: 2 years.")
     parser.add_argument("--sampling_freq", type=int, default=100,
-                        help="Save a sample every this many iterations. "
+                        help="Save a sample every this many iterations."
                              "Default: 100.")
+    parser.add_argument("--iter_method", default="full",
+                        help="Iteration method for gp.iterate()")
     args = parser.parse_args()
     return args
 
@@ -47,7 +49,7 @@ def main():
                                 "exponential", {"scale": args.scale},
                                 propose_sd=0.1,
                                 save_every_n_iter=args.sampling_freq)
-    gp.iterate(args.n_iters)
+    gp.iterate(args.n_iters, method=args.iter_method)
     with open(args.pickle_output, 'wb') as fh:
         pickle.dump(gp.samples, fh)
 
