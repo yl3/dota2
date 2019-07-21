@@ -26,32 +26,25 @@ def exp_cov_mat(x, scale=1.0):
     return covar_mat
 
 
-def win_prob(skill_diff, scaling_factor=0.2):
+def win_prob(skill_diff, scaling_factor):
     """Win probability for radiant given a skill difference.
 
     skill_diff is positive when radiant has a higher skill, i.e.
     `skill_diff` > 0 => win probability >= 50%.
 
-    Computed as 1 / (1 + np.exp(-skill_diff * scaling_factor)).
-
-    If the skill difference of a team is 2 (i.e. 2 SDs of one player),
-    and we wanted this to lead to a 60% edge, the scaling factor should be
-    around 0.2.
-
-    The value of 0.2 also corresponds to a difference of 10 points
-    resulting in a win rate of 85-90%.
+    Computed as 1 / (1 + np.exp(-skill_diff / scaling_factor)).
     """
-    win_prob = 1 / (1 + np.exp(-skill_diff * scaling_factor))
+    win_prob = 1 / (1 + np.exp(-skill_diff / scaling_factor))
     return win_prob
 
 
-def compute_match_win_prob(players_mat, skills_mat, radi_offset):
+def compute_match_win_prob(players_mat, skills_mat, radi_offset, *args):
     """Compute the win probability of each match.
 
     `radi_offset` is the offset advantage for the Radiant team.
     """
     match_skills_diff = np.nansum(players_mat * skills_mat, 1) + radi_offset
-    match_win_prob = win_prob(match_skills_diff)
+    match_win_prob = win_prob(match_skills_diff, *args)
     return match_win_prob
 
 
@@ -148,6 +141,8 @@ class SkillsGP:
         radi_offset_proposal_sd (float): Proposal move standard deviation for
             the radiant advantage term. The prior is (currently) assumed
             to be flat.
+        logistic_scale (float): Scaling factor for the logistic function for
+            computing win probability.
         save_every_n_iter (int): Save iterations every how many iterations?
             Default: 100.
 
@@ -221,7 +216,8 @@ class SkillsGP:
     def _match_loglik(self, skills_mat, radiant_adv):
         """Log-likelihood of the observed outcomes."""
         match_win_prob = compute_match_win_prob(self.players_mat, skills_mat,
-                                                radiant_adv)
+                                                radiant_adv,
+                                                self.logistic_scale)
         match_loglik = scipy.stats.bernoulli.logpmf(self.radiant_win,
                                                     match_win_prob)
         return match_loglik
@@ -288,7 +284,8 @@ class SkillsGP:
             affected_matches = ~self.nanmask[:, i]
             old_match_win_prob = compute_match_win_prob(
                 self.players_mat[affected_matches, :],
-                old_skills_mat[affected_matches, :], self._cur_radi_adv)
+                old_skills_mat[affected_matches, :], self._cur_radi_adv,
+                self.logistic_scale)
             new_skills_mat = transitioned_skills_mat[affected_matches, :]
             new_skills_mat[:, i] = new_skills_vec
             old_match_loglik = scipy.stats.bernoulli.logpmf(
@@ -296,7 +293,7 @@ class SkillsGP:
                 old_match_win_prob)
             new_match_win_prob = compute_match_win_prob(
                 self.players_mat[affected_matches, :], new_skills_mat,
-                self._cur_radi_adv)
+                self._cur_radi_adv, self.logistic_scale)
             new_match_loglik = scipy.stats.bernoulli.logpmf(
                 self.radiant_win[affected_matches],
                 new_match_win_prob)
@@ -326,7 +323,7 @@ class SkillsGP:
         # Save the current iteration as a sample?
         if self._cur_iter % self.save_every_n_iter == 0:
             self.samples.append((self._cur_iter, self._cur_skills,
-                                 self._cur_log_posterior, self._cur_radi_adv,
+                                 self._cur_radi_adv, self._cur_log_posterior,
                                  prior_logprob, loglik))
 
     def iterate_once_full(self):
@@ -354,7 +351,7 @@ class SkillsGP:
         # Save the current iteration as a sample?
         if self._cur_iter % self.save_every_n_iter == 0:
             self.samples.append((self._cur_iter, self._cur_skills,
-                                 self._cur_log_posterior, self._cur_radi_adv,
+                                 self._cur_radi_adv, self._cur_log_posterior,
                                  prior_logprob, loglik))
 
     def iterate(self, n=1, method="full"):
@@ -370,7 +367,8 @@ class SkillsGP:
 
     def __init__(self, players_mat, start_times, radiant_win, player_ids,
                  cov_func_name, cov_func_kwargs=None, propose_sd=0.2,
-                 radi_offset_proposal_sd=0.005, save_every_n_iter=100):
+                 radi_offset_proposal_sd=0.005, logistic_scale=0.2,
+                 save_every_n_iter=100):
         # Some basic sanity checks.
         # 10 players per game?
         # assert all(np.nansum(np.abs(players_mat), 1) == 10)
@@ -383,6 +381,7 @@ class SkillsGP:
         self.player_ids = player_ids
         self.propose_sd = propose_sd
         self.radi_offset_proposal_sd = radi_offset_proposal_sd
+        self.logistic_scale = logistic_scale
         self.save_every_n_iter = save_every_n_iter
 
         # Save computed values.
