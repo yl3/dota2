@@ -1,5 +1,13 @@
 # Notes
 
+## 2019-07-21
+
+Next steps:
+
+* Have a high scaling factor for the logistic model to allow more disparity between teams. Essentially, reduce the effect of regularisation.
+* Optimise speed.
+* Simplify code - by default represent skills column-by-column as opposed to row by row.
+
 ## 2019-07-19
 
 Previous attempt on MCMC sampling of the model was marred by a poor proposal distribution that proposed samples that were highly implausible for the covaried normal distributions.

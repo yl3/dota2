@@ -45,9 +45,12 @@ def win_prob(skill_diff, scaling_factor=0.2):
     return win_prob
 
 
-def compute_match_win_prob(players_mat, skills_mat):
-    """Compute the win probability of each match."""
-    match_skills_diff = np.nansum(players_mat * skills_mat, 1)
+def compute_match_win_prob(players_mat, skills_mat, radi_offset):
+    """Compute the win probability of each match.
+
+    `radi_offset` is the offset advantage for the Radiant team.
+    """
+    match_skills_diff = np.nansum(players_mat * skills_mat, 1) + radi_offset
     match_win_prob = win_prob(match_skills_diff)
     return match_win_prob
 
@@ -142,6 +145,9 @@ class SkillsGP:
             function.
         propose_sd (float): Standard deviation for the proposal Gaussian
             distribution.
+        radi_offset_proposal_sd (float): Proposal move standard deviation for
+            the radiant advantage term. The prior is (currently) assumed
+            to be flat.
         save_every_n_iter (int): Save iterations every how many iterations?
             Default: 100.
 
@@ -161,8 +167,8 @@ class SkillsGP:
             probability for a vector `x` for the *k*'th player can be
             computed using ``self.prior_multinorm[k](x)``
         samples (list): A list of tuples with values of (<iteration number>,
-            <skills vector>, <log_posterior>). To convert a skills vector
-            into a *M* * *N* matrix, use
+            <skills vector>, <radiant_advantage>, <log_posterior>). To
+            convert a skills vector into a *M* * *N* matrix, use
             ``self.skills_vec_to_mat(skills_vec)``.
     """
 
@@ -178,8 +184,8 @@ class SkillsGP:
         """
         # return _initialise_skills(self.players_mat, self.N, self.radiant_win)
         initial_skills = np.repeat(0.0, self.M * 10)
-        log_prob = self.compute_log_posterior(initial_skills)
-        return (0, initial_skills, log_prob)
+        log_prob = self.compute_log_posterior(initial_skills, 0.0)
+        return (0, initial_skills, 0.0, log_prob)
 
     def _propose_move_for_player(self, k):
         """Propose a move for a player.
@@ -212,9 +218,10 @@ class SkillsGP:
             player_prior_logprobs.append(logprob)
         return player_prior_logprobs
 
-    def _match_loglik(self, skills_mat):
+    def _match_loglik(self, skills_mat, radiant_adv):
         """Log-likelihood of the observed outcomes."""
-        match_win_prob = compute_match_win_prob(self.players_mat, skills_mat)
+        match_win_prob = compute_match_win_prob(self.players_mat, skills_mat,
+                                                radiant_adv)
         match_loglik = scipy.stats.bernoulli.logpmf(self.radiant_win,
                                                     match_win_prob)
         return match_loglik
@@ -232,18 +239,41 @@ class SkillsGP:
         mat = flat_mat.reshape(self.M, self.N)
         return mat
 
-    def compute_log_posterior(self, skills_vec):
+    def compute_log_posterior(self, skills_vec, radiant_adv):
         """Compute the log posterior probability of the skills vector."""
         assert len(skills_vec) == self.M * 10
         skills_mat = self.skills_vec_to_mat(skills_vec)
         prior_logprob = sum(
             self._skills_mat_prior_logprob(skills_mat))
-        loglik = np.sum(self._match_loglik(skills_mat))
+        loglik = np.sum(self._match_loglik(skills_mat, radiant_adv))
         log_posterior = prior_logprob + loglik
         return log_posterior
 
+    def get_radiant_adv_update(self):
+        """Perform a Metropolis iteration on the Radiant advantage.
+
+        Returns the (potentially) updated value as opposed to modifying
+        `self` directly.
+        """
+        skills_mat = self.skills_vec_to_mat(self._cur_skills)
+        old_match_loglik = np.sum(self._match_loglik(skills_mat,
+                                                     self._cur_radi_adv))
+        new_radi_adv = (self._cur_radi_adv
+                        + np.random.normal(scale=self.radi_offset_proposal_sd))
+        new_match_loglik = np.sum(self._match_loglik(skills_mat,
+                                                     new_radi_adv))
+        if np.log(np.random.uniform()) < new_match_loglik - old_match_loglik:
+            return new_radi_adv
+        else:
+            return self._cur_radi_adv
+
+
     def iterate_once_player_wise(self):
         """Perform a block-wise iteration across all players."""
+        # First iterate on the radiant advantage offset.
+        self._cur_radi_adv = self.get_radiant_adv_update()
+
+        # Then update each player's skills in turn.
         old_skills_mat = self.skills_vec_to_mat(self._cur_skills)
         transitioned_skills_mat = old_skills_mat.copy()
         for i in range(self.N):
@@ -258,14 +288,15 @@ class SkillsGP:
             affected_matches = ~self.nanmask[:, i]
             old_match_win_prob = compute_match_win_prob(
                 self.players_mat[affected_matches, :],
-                old_skills_mat[affected_matches, :])
+                old_skills_mat[affected_matches, :], self._cur_radi_adv)
             new_skills_mat = transitioned_skills_mat[affected_matches, :]
             new_skills_mat[:, i] = new_skills_vec
             old_match_loglik = scipy.stats.bernoulli.logpmf(
                 self.radiant_win[affected_matches],
                 old_match_win_prob)
             new_match_win_prob = compute_match_win_prob(
-                self.players_mat[affected_matches, :], new_skills_mat)
+                self.players_mat[affected_matches, :], new_skills_mat,
+                self._cur_radi_adv)
             new_match_loglik = scipy.stats.bernoulli.logpmf(
                 self.radiant_win[affected_matches],
                 new_match_win_prob)
@@ -282,7 +313,8 @@ class SkillsGP:
         assert len(transitioned_skills_vec) == self.M * 10
         prior_logprob = sum(
             self._skills_mat_prior_logprob(transitioned_skills_mat))
-        loglik = np.sum(self._match_loglik(transitioned_skills_mat))
+        loglik = np.sum(self._match_loglik(transitioned_skills_mat,
+                                           self._cur_radi_adv))
         new_log_posterior = prior_logprob + loglik
 
         # self._cur_skills won't change, if transitioned_skills_mat doesn't
@@ -294,11 +326,14 @@ class SkillsGP:
         # Save the current iteration as a sample?
         if self._cur_iter % self.save_every_n_iter == 0:
             self.samples.append((self._cur_iter, self._cur_skills,
-                                 self._cur_log_posterior, prior_logprob,
-                                 loglik))
+                                 self._cur_log_posterior, self._cur_radi_adv,
+                                 prior_logprob, loglik))
 
     def iterate_once_full(self):
         """Perform a full Metropolis iteration."""
+        # First iterate on the radiant advantage offset.
+        self._cur_radi_adv = self.get_radiant_adv_update()
+
         proposed_skills = self._propose_next()
         # TODO
         # proposed_log_posterior = self.compute_log_posterior(proposed_skills)
@@ -306,7 +341,7 @@ class SkillsGP:
         skills_mat = self.skills_vec_to_mat(proposed_skills)
         prior_logprob = sum(
             self._skills_mat_prior_logprob(skills_mat))
-        loglik = np.sum(self._match_loglik(skills_mat))
+        loglik = np.sum(self._match_loglik(skills_mat, self._cur_radi_adv))
         proposed_log_posterior = prior_logprob + loglik
 
         # Transition to a new state?
@@ -319,8 +354,8 @@ class SkillsGP:
         # Save the current iteration as a sample?
         if self._cur_iter % self.save_every_n_iter == 0:
             self.samples.append((self._cur_iter, self._cur_skills,
-                                 self._cur_log_posterior, prior_logprob,
-                                 loglik))
+                                 self._cur_log_posterior, self._cur_radi_adv,
+                                 prior_logprob, loglik))
 
     def iterate(self, n=1, method="full"):
         """Iterate n times."""
@@ -335,7 +370,7 @@ class SkillsGP:
 
     def __init__(self, players_mat, start_times, radiant_win, player_ids,
                  cov_func_name, cov_func_kwargs=None, propose_sd=0.2,
-                 save_every_n_iter=100):
+                 radi_offset_proposal_sd=0.005, save_every_n_iter=100):
         # Some basic sanity checks.
         # 10 players per game?
         # assert all(np.nansum(np.abs(players_mat), 1) == 10)
@@ -347,6 +382,7 @@ class SkillsGP:
         self.start_times = start_times
         self.player_ids = player_ids
         self.propose_sd = propose_sd
+        self.radi_offset_proposal_sd = radi_offset_proposal_sd
         self.save_every_n_iter = save_every_n_iter
 
         # Save computed values.
@@ -365,5 +401,8 @@ class SkillsGP:
 
         # Initialise other variables.
         temp_tuple = self._initialise_skills()
-        self._cur_iter, self._cur_skills, self.cur_log_posterior = temp_tuple
+        (self._cur_iter,
+         self._cur_skills,
+         self._cur_radi_adv,
+         self.cur_log_posterior) = temp_tuple
         self.samples = [temp_tuple]
