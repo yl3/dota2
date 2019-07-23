@@ -33,3 +33,10 @@ def player_id_to_player_name(player_ids, player_names, team_ids, team_names):
         },
         index=itertools.chain.from_iterable(list(player_ids)))
     return output_series[~output_series.index.duplicated(keep='first')]
+
+
+def match_df_to_player_mat(match_df):
+    """Get a player matrix from the output of src.load.all_matches_df()."""
+    players_mat = make_match_players_matrix(
+        match_df.radiant_players, match_df.dire_players)
+    return players_mat

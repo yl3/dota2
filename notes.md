@@ -1,5 +1,9 @@
 # Notes
 
+## 2019-07-22
+
+Overnight run of the full match dataset (= 5000 matches up to TI9 qualifiers). Rate: 5515 iterations / 7h21min23sec.
+
 ## 2019-07-21
 
 Next steps:
@@ -7,6 +11,8 @@ Next steps:
 * Have a high scaling factor for the logistic model to allow more disparity between teams. Essentially, reduce the effect of regularisation.
 * Optimise speed.
 * Simplify code - by default represent skills column-by-column as opposed to row by row.
+
+Also, it seems like drawing random multivariate normal samples is slower than drawing a random standard multivariate normal, then multiplying it with a precomputed Cholesky decomposed matrix.
 
 ## 2019-07-19
 

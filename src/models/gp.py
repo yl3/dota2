@@ -6,6 +6,7 @@ import progressbar
 import scipy.linalg
 import scipy.spatial.distance
 import scipy.stats
+import sys
 
 
 def exp_cov_mat(x, scale=1.0):
@@ -263,7 +264,6 @@ class SkillsGP:
         else:
             return self._cur_radi_adv
 
-
     def iterate_once_player_wise(self):
         """Perform a block-wise iteration across all players."""
         # First iterate on the radiant advantage offset.
@@ -356,12 +356,20 @@ class SkillsGP:
 
     def iterate(self, n=1, method="full"):
         """Iterate n times."""
+
         if method == "full":
             for i in progressbar.progressbar(range(n)):
-                self.iterate_once_full()
+                try:
+                    self.iterate_once_full()
+                except KeyboardInterrupt:
+                    sys.stderr.write(f"Interrupted at iteration {i}.")
         elif method == "playerwise":
             for i in progressbar.progressbar(range(n)):
-                self.iterate_once_player_wise()
+                try:
+                    self.iterate_once_player_wise()
+                except KeyboardInterrupt:
+                    sys.stderr.write(f"Interrupted at iteration {i}.\n")
+                    break
         else:
             raise ValueError(f"Iteration method '{method}' not recognised.")
 
