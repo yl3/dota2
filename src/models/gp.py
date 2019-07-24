@@ -53,71 +53,58 @@ def _played_vec_to_cov_mat(cov_func, played_vec):
     return cov_func(played_vec)
 
 
-def _compute_cov_mats(cov_func, time, played_mat, delta=1e-9):
-    """Compute covariance matrices for each player.
-
-    Args:
-        cov_func (callable): Function from an *n* sized vector to an *n* *
-            *n* size covariance matrix.
-        played_mat (numpy.ndarray): A 2D boolean array of matches and
-            players. The value indicates whether a player played in a game.
-        time (numpy.ndarray): An 1D array of times or locations
-            corresponding to each row in `played_mat`.
-        delta (float): Add a small delta to make sure the matrix if positive
-            semidefinite.
-    """
-    cov_mats = []
-    for col_idx in range(played_mat.shape[1]):
-        played_idx = played_mat[:, col_idx]
-        cov_mat = _played_vec_to_cov_mat(cov_func, time[played_idx])
-        cov_mat += np.diag(np.repeat(delta, cov_mat.shape[0]))
-        cov_mats.append(cov_mat)
-    return cov_mats
-
-
-def _initialise_skills(players_mat, n_cols, radiant_win):
-    """Initialise skills."""
-    random_skills = np.random.normal(size=10 * players_mat.shape[0])
-    return random_skills
-
-
-def _c_to_r_idx(bool_mat):
-    """
-    Compute index for converting a 1D representation of a sparse matrix from
-    column by column ordering to row by row ordering.
-
-    If ``x`` is an array of values corresponding to True values in bool_mat
-    when reshaped row by row (default in numpy), then ``x[idx]`` (where
-    `idx` is the return value of this function) reorders the values in ``x``
-    such that they correspond to the matrix when reshaped column by column.
-
-    Args:
-        bool_mat (numpy.ndarray): A boolean matrix of indicating which
-            values are represented by the input vector.
-
-    Returns:
-        numpy.ndarray: A 1D array of indices.
-    """
-    # Algorithm: create an increasing index array and reorder it by
-    # converting to and from a matrix.
-    # Initialise an index array with nans.
-    idx = np.repeat(-1, bool_mat.shape[0] * bool_mat.shape[1])
-
-    # Treat the index array as a column-by-column format and fill in the
-    # index values.
-    idx[bool_mat.reshape(-1, order='F')] = np.arange(np.sum(bool_mat))
-
-    # Reshape the index array column-wise into a matrix then row-wise back
-    # to a 1D array.
-    idx = idx.reshape(bool_mat.shape, order='F').reshape(-1)
-    idx = idx[idx != -1]
-
-    return idx
-
-
 def _dropna(a):
     """Drop nans from a 1D numpy array."""
     return a[~np.isnan(a)]
+
+
+class GPVec():
+    """
+    A container for sampling a Gaussian process using a standard
+    multivariate normal.
+
+    All the data are internally stored in the standard (multivariate normal)
+    space and transformed into the GP space on demand using the covariance
+    matrix S.
+
+    The GP covariance function used is exp(-|d|/s), where d is distance
+    and s is the scaling factor. Rescaling s through s -> s * u is
+    equivalent to exp(-d/(su)) -> exp(-d/s) ** (1/u).
+
+    Args:
+        initial_values (numpy.ndarray): Initial values in the standard
+            space.
+        cov_mat (numpy.ndarray): Covariance matrix.
+    """
+    def _validate_args(self, values, cov_mat):
+        k = len(values)
+        if cov_mat.shape != (k, k):
+            raise ValueError("cov_mat is of the wrong shape.")
+
+    def __init__(self, initial_values, cov_mat):
+        self._validate_args(initial_values, cov_mat)
+        self.state = initial_values
+        self.cov_mat = cov_mat
+        self.cov_func_scale = 1.0
+
+    def transformed(self, x=None, cov_func_scale=None):
+        cov_mat = self.cov_mat
+        if cov_func_scale is not None:
+            cov_mat = cov_mat ** (1 / cov_func_scale)
+        sd_mat = scipy.linalg.cholesky(cov_mat)
+        if x is None:
+            x = self.state
+        return sd_mat @ x
+
+    def loglik(self, x=None, cov_func_scale=None):
+        """Compute the current (transformed) log-likelihood."""
+        if x is None:
+            x = self.state
+        cov_mat = self.cov_mat
+        if cov_func_scale is not None:
+            cov_mat = cov_mat ** (1 / cov_func_scale)
+        loglik = scipy.stats.multivariate_normal.logpdf(x, cov=cov_mat)
+        return loglik
 
 
 class SkillsGP:
@@ -172,16 +159,10 @@ class SkillsGP:
         "exponential": exp_cov_mat
     }
 
-    def _initialise_skills(self):
-        """Initialise skills.
-
-        Returns:
-            tuple: A sample compatible with :attr:`samples`.
-        """
-        # return _initialise_skills(self.players_mat, self.N, self.radiant_win)
-        initial_skills = np.repeat(0.0, self.M * 10)
-        log_prob = self.compute_log_posterior(initial_skills, 0.0)
-        return (0, initial_skills, 0.0, log_prob)
+    def _expand_sparse_player_vec(self, arr, idx):
+        full_array = np.full(self.M, np.nan)
+        full_array[idx] = arr
+        return full_array
 
     def _propose_move_for_player(self, k):
         """Propose a move for a player.
@@ -394,22 +375,38 @@ class SkillsGP:
 
         # Save computed values.
         self.radiant_win = np.where(radiant_win, 1, 0)
-        self.nanmask = players_mat == 0
-        self.flat_nanmask = self.nanmask.reshape(-1)
-        self._c_to_r_idx = _c_to_r_idx(~self.nanmask)
         self.cov_func = lambda x: self.COV_FUNCS[cov_func_name](
             x, **cov_func_kwargs)
-        self.cov_mat = _compute_cov_mats(self.cov_func, self.start_times,
-                                         ~self.nanmask)
-        self.prior_multinorm = []
-        for i in range(len(self.cov_mat)):
-            self.prior_multinorm.append(
-                scipy.stats.multivariate_normal(cov=self.cov_mat[i]).logpdf)
+        self.player_skill_vecs = []
+        for k in range(self.N):
+            played_matches = np.arange(self.M)[self.players_mat[:, k] != 0.0]
+            initial_values = np.repeat(0.0, sum(played_matches))
+            cov_mat = _played_vec_to_cov_mat(self.cov_func,
+                                             self.start_times[played_matches])
+            self.player_skill_vecs.append((GPVec(initial_values, cov_mat),
+                                           played_matches))
 
-        # Initialise other variables.
-        temp_tuple = self._initialise_skills()
-        (self._cur_iter,
-         self._cur_skills,
-         self._cur_radi_adv,
-         self.cur_log_posterior) = temp_tuple
-        self.samples = [temp_tuple]
+        # Initialise other variables:
+        # Current skill differences at each match.
+        skills_per_player = [x[0].transformed() for x in self.player_skill_vecs]
+        expanded_skills_vecs = \
+            [self._expand_sparse_player_vec(skills_per_player[k],
+                                            self.player_skill_vecs[k][1])
+             for x in self.N]
+        skills_mat = np.array(expanded_skills_vecs).T
+        breakpoint()
+        self.cur_skill_diffs = np.nansum(skills_mat * self.players_mat, 1)
+        self.cur_iter = 0
+        self.cur_radi_adv = 0.0
+        cur_log_prior = sum(
+            [x[0].loglik() for x in self.player_skill_vecs])
+        match_win_prob = compute_match_win_prob(self.players_mat, skills_mat,
+                                                self.cur_radi_adv,
+                                                self.logistic_scale)
+        cur_match_loglik = \
+            sum(scipy.stats.bernoulli.logpmf(self.radiant_win, match_win_prob))
+        self.cur_log_posterior = cur_log_prior + cur_match_loglik
+
+        self.samples = [(self.cur_iter, skills_per_player, self.cur_radi_adv,
+                         self.cur_log_posterior, cur_log_prior,
+                         cur_match_loglik, self.cur_log_posterior)]

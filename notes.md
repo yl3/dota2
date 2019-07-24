@@ -1,8 +1,36 @@
 # Notes
 
+## 2019-07-23
+
+One more note to yesterdays computations. For the exponential Gaussian process, the covariance function is $cov(x_i, x_j) = \exp(-\frac{|x_i - x_j|}{su}) = \exp(-\frac{|x_i - x_j|}{s})^{1/u}$. Thus, 
+
 ## 2019-07-22
 
-Overnight run of the full match dataset (= 5000 matches up to TI9 qualifiers). Rate: 5515 iterations / 7h21min23sec.
+Overnight run of the full match dataset (= 5000 matches up to TI9 qualifiers). Rate: 5515 iterations / 7h 21min 23sec.
+
+Code should be optimised by performing a minimum amount matrix multiplications. This is done by random walking the per-sample skills vectors using a standard multivariate normal. The only time the actual skills are needed is when we need to compute the match probabilities.
+
+If $X$ is a $k$ length multivariate normal distribution (column) vector with a covariance matrix of $\Sigma = AA^\top$, then $X \sim AZ$, where $Z \sim \mathcal{N}(\vec{0}, I)$.
+
+We can keep random walking in this "standard normal" space. When needed to compute match likelihoods, a one-off transformation can be performed using a *precomputed and prestored* matrix $A$.
+
+The log density of a multivariate normal distribution is the following.
+
+$$\frac{\exp(-\frac{1}{2}X^\top \Sigma^{-1} X)}{\sqrt{(2\pi)^k |\Sigma|}}$$
+
+Thus, the log-likelihood of $X$ is:
+
+$$-\frac{1}{2} X^\top (AA^\top)^{-1} X - \frac{1}{2} \log((2\pi)^k |\Sigma|)$$
+
+$$= -\frac{1}{2} Z^\top A^\top (A^\top)^{-1} A^{-1} AZ - \frac{1}{2} (\log((2\pi)^k + \log |\Sigma|)$$
+
+$$= -\frac{1}{2} Z^\top I Z - \frac{1}{2} \log(2\pi)^k - \frac{1}{2} \log |\Sigma| $$
+
+$$= P(Z) - \frac{1}{2} \log |\Sigma|$$
+
+Therefore, we can just take the standard normal log-likelihood and subtract precomputed $\log |\Sigma|$.
+
+Secondly, an array should be kept with the running sums of the match skill differences (including Radiant advantage). This way, match differences can be updated simply by updating the changed player values, without having to sum over the unchanged skills.
 
 ## 2019-07-21
 
