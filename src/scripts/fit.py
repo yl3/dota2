@@ -54,7 +54,7 @@ def main():
     players_mat = munge.make_match_players_matrix(
         matches.radiant_players, matches.dire_players)
     gp = src.models.gp.SkillsGP(players_mat.values,
-                                matches.startTimestamp,
+                                matches.startTimestamp.values,
                                 matches.radiantVictory,
                                 matches.columns.values,
                                 "exponential", {"scale": args.scale},

@@ -1,7 +1,6 @@
 """Gaussian process modelling of player skills."""
 
 
-import numba
 import numpy as np
 import progressbar
 import scipy.linalg
@@ -9,6 +8,12 @@ import scipy.spatial.distance
 import scipy.stats
 import sys
 import warnings
+
+
+def bernoulli_logpmf(y, p):
+    """Bernoulli log-pmf without checks."""
+    loglik = np.sum(np.log(np.where(y == 1, p, 1 - p)))
+    return loglik
 
 
 def exp_cov_mat(x, scale=1.0):
@@ -85,21 +90,19 @@ class GPVec():
 
     def __init__(self, initial_values, cov_mat):
         self._validate_args(initial_values, cov_mat)
-        self.state = initial_values
+        self.state = initial_values.astype(np.longdouble)
         self.cov_mat = cov_mat
         self.cov_func_scale = 1.0
 
-    def transformed(self, delta=None, cov_func_scale=None):
+    def transformed(self, state=None, cov_func_scale=None):
         cov_mat = self.cov_mat
         if cov_func_scale is not None:
             cov_mat = cov_mat ** (1 / cov_func_scale)
         sd_mat = scipy.linalg.cholesky(cov_mat)
-        state = self.state
-        if delta is not None:
-            state = state + delta
+        if state is None:
+            state = self.state
         return sd_mat @ state
 
-    @numba.jit(forceobj=True)
     def _std_normal_logpdf(self, x):
         res = np.sum(scipy.stats.norm.logpdf(x))
         return res
@@ -115,6 +118,18 @@ class GPVec():
         abs_det = np.linalg.slogdet(cov_mat)[1]
         loglik = self._std_normal_logpdf(state) - 0.5 * abs_det
         return loglik
+
+    def delta_loglik(self, delta):
+        """
+        Difference in log-likelihood based on a delta in the current state.
+
+        The internal state is in standard normal. Therefore, the likelihood
+        difference can be computed in a very straightforward manner.
+        """
+        loglik_diff = -np.sum(delta * (self.state + 0.5 * delta))
+        # loglik_diff = (self._std_normal_logpdf(self.state + delta)
+        #                - self._std_normal_logpdf(self.state))
+        return loglik_diff
 
 
 class SkillsGP:
@@ -196,8 +211,7 @@ class SkillsGP:
         match_win_prob = compute_match_win_prob(self.players_mat, skills_mat,
                                                 radiant_adv,
                                                 self.logistic_scale)
-        match_loglik = scipy.stats.bernoulli.logpmf(self.radiant_win,
-                                                    match_win_prob)
+        match_loglik = bernoulli_logpmf(self.radiant_win, match_win_prob)
         return match_loglik
 
     def cur_log_posterior(self, radiant_adv, cov_func_scale=None):
@@ -215,13 +229,13 @@ class SkillsGP:
         `self` directly.
         """
         old_win_prob = win_prob(self._cur_skill_diffs, self.logistic_scale)
-        old_match_loglik = np.sum(scipy.stats.bernoulli.logpmf(
+        old_match_loglik = np.sum(bernoulli_logpmf(
             self.radiant_win, old_win_prob))
 
         radi_adv_delta = np.random.normal(scale=self.radi_offset_proposal_sd)
         new_win_prob = win_prob(
             self._cur_skill_diffs + radi_adv_delta, self.logistic_scale)
-        new_match_loglik = np.sum(scipy.stats.bernoulli.logpmf(
+        new_match_loglik = np.sum(bernoulli_logpmf(
             self.radiant_win, new_win_prob))
         if np.log(np.random.uniform()) < new_match_loglik - old_match_loglik:
             return (self._cur_radi_adv + radi_adv_delta,
@@ -230,7 +244,6 @@ class SkillsGP:
         else:
             return self._cur_radi_adv, self._cur_log_posterior
 
-    @numba.jit(forceobj=True)
     def iterate_once_player_wise(self):
         """Perform a block-wise iteration across all players."""
         # First iterate on the radiant advantage offset.
@@ -250,37 +263,36 @@ class SkillsGP:
                                             size=len(match_idx))
 
             # Compute the prior probability portion.
-            old_prior_lprob = player_skills_gp.loglik()
-            new_prior_lprob = player_skills_gp.loglik(skills_delta)
+            prior_lprob_change = player_skills_gp.delta_loglik(skills_delta)
 
-            # Compute the match likelihood portion.
+            # Compute the match likelihood portion: old match likelihood.
             old_skill_diffs = self._cur_skill_diffs[match_idx]
             radiant_win = self.radiant_win[match_idx]
             old_win_prob = win_prob(old_skill_diffs, self.logistic_scale)
-            old_loglik = scipy.stats.bernoulli.logpmf(radiant_win, old_win_prob)
+            old_loglik = bernoulli_logpmf(radiant_win, old_win_prob)
+
+            # Compute the match likelihood portion: new match likelihood.
             skill_diffs_delta = \
                 (self.players_mat[match_idx, i]
-                 * player_skills_gp.transformed(skills_delta
-                                                - player_skills_gp.state))
+                 * player_skills_gp.transformed(skills_delta))
             new_skill_diffs = old_skill_diffs + skill_diffs_delta
             new_win_prob = win_prob(new_skill_diffs, self.logistic_scale)
-            new_loglik = scipy.stats.bernoulli.logpmf(radiant_win, new_win_prob)
+            new_loglik = bernoulli_logpmf(radiant_win, new_win_prob)
 
             # Transition in-place?
-            prior_lprob_change = new_prior_lprob - old_prior_lprob
             match_loglik_change = np.sum(new_loglik) - np.sum(old_loglik)
             log_bayes_factor = prior_lprob_change + match_loglik_change
             if np.log(np.random.uniform()) < log_bayes_factor:
                 player_skills_gp.state += skills_delta
-                self._cur_skill_diffs[match_idx] = new_skill_diffs
+                self._cur_skill_diffs[match_idx] += skill_diffs_delta
                 self._cur_log_posterior += log_bayes_factor
 
         # Increase iteration count. Save current sample?
         self._cur_iter += 1
         if self._cur_iter % self.save_every_n_iter == 0:
-            self.samples.append([(self._cur_iter,
-                                [x[0].state for x in self.player_skill_vecs],
-                                self._cur_radi_adv, self._cur_log_posterior)])
+            self.samples.append((self._cur_iter,
+                                 [x[0].state for x in self.player_skill_vecs],
+                                 self._cur_radi_adv, self._cur_log_posterior))
 
     def iterate(self, n=1, method="playerwise"):
         """Iterate n times."""
@@ -344,13 +356,7 @@ class SkillsGP:
         self._cur_skill_diffs = \
             (np.nansum(self.players_mat * self.cur_skills_mat(), 1)
              + self._cur_radi_adv)
-        # TODO: replace with below.
-        # self.cur_log_posterior = self.cur_log_posterior(self._cur_radi_adv)
-        prior_logprob = np.sum(self.prior_log_prob())
-        skills_mat = self.cur_skills_mat()
-        match_loglik = np.sum(self.match_loglik(skills_mat, self._cur_radi_adv))
-        self._cur_log_posterior = prior_logprob + match_loglik
+        self._cur_log_posterior = self.cur_log_posterior(self._cur_radi_adv)
         self.samples = [(self._cur_iter,
                         [x[0].state for x in self.player_skill_vecs],
-                        self._cur_radi_adv, self._cur_log_posterior,
-                        prior_logprob, match_loglik)]
+                        self._cur_radi_adv, self._cur_log_posterior)]

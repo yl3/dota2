@@ -1,12 +1,31 @@
 # Notes
 
+## 2019-07-26
+
+By calculating log-prior probability change based on a state change without explicitly computing the log determinant term (which cancels out), we now get to <1 seconds per iteration.
+
+After additional optimisation, which mostly involves writing out scipy.stats functions and abandoning their checks, the time spent on 100 iterations is:
+
+scipy version | time used (seconds) | mean
+--------------|---------------------|----- 
+`1.2.1-py37_blas_openblash486cb9f_0` | 38, 33, 43, 43, 37 | 38.8
+`1.3.0-py37hab3da7d_0` | 37, 38, 38, 33, 34 | 36
+
+We are getting just shy of 3 iterations per second.
+
+## 2019-07-25
+
+Added sampling for the radiant advantage.
+
+After refactoring and "optimisation", the speed per iteration is ~1 second. Based on line profiling, all the time is spent on sampling or taking the likelihood of standard multivariate normal distributions.
+
 ## 2019-07-23
 
 One more note to yesterdays computations. For the exponential Gaussian process, the covariance function is $cov(x_i, x_j) = \exp(-\frac{|x_i - x_j|}{su}) = \exp(-\frac{|x_i - x_j|}{s})^{1/u}$. Thus, 
 
 ## 2019-07-22
 
-Overnight run of the full match dataset (= 5000 matches up to TI9 qualifiers). Rate: 5515 iterations / 7h 21min 23sec.
+Overnight run of the full match dataset (= 5000 matches up to TI9 qualifiers). Rate: 5515 iterations / 7h 21min 23sec = 4.8 sec / iteration.
 
 Code should be optimised by performing a minimum amount matrix multiplications. This is done by random walking the per-sample skills vectors using a standard multivariate normal. The only time the actual skills are needed is when we need to compute the match probabilities.
 
