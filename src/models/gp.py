@@ -1,12 +1,14 @@
 """Gaussian process modelling of player skills."""
 
 
+import numba
 import numpy as np
 import progressbar
 import scipy.linalg
 import scipy.spatial.distance
 import scipy.stats
 import sys
+import warnings
 
 
 def exp_cov_mat(x, scale=1.0):
@@ -21,10 +23,10 @@ def exp_cov_mat(x, scale=1.0):
     """
     squeezed_dist = scipy.spatial.distance.pdist(np.array(x)[:, np.newaxis],
                                                  'minkowski', p=1.0)
-    covar_mat = scipy.spatial.distance.squareform(
+    cov_mat = scipy.spatial.distance.squareform(
         np.exp(-squeezed_dist / scale))
-    covar_mat += np.diag(np.repeat(1.0, covar_mat.shape[0]))
-    return covar_mat
+    cov_mat += np.diag(np.repeat(1.0, cov_mat.shape[0]))
+    return cov_mat
 
 
 def win_prob(skill_diff, scaling_factor):
@@ -87,23 +89,31 @@ class GPVec():
         self.cov_mat = cov_mat
         self.cov_func_scale = 1.0
 
-    def transformed(self, x=None, cov_func_scale=None):
+    def transformed(self, delta=None, cov_func_scale=None):
         cov_mat = self.cov_mat
         if cov_func_scale is not None:
             cov_mat = cov_mat ** (1 / cov_func_scale)
         sd_mat = scipy.linalg.cholesky(cov_mat)
-        if x is None:
-            x = self.state
-        return sd_mat @ x
+        state = self.state
+        if delta is not None:
+            state = state + delta
+        return sd_mat @ state
 
-    def loglik(self, x=None, cov_func_scale=None):
+    @numba.jit(forceobj=True)
+    def _std_normal_logpdf(self, x):
+        res = np.sum(scipy.stats.norm.logpdf(x))
+        return res
+
+    def loglik(self, delta=None, cov_func_scale=None):
         """Compute the current (transformed) log-likelihood."""
-        if x is None:
-            x = self.state
+        state = self.state
+        if delta is not None:
+            state = np.add(state, delta)
         cov_mat = self.cov_mat
         if cov_func_scale is not None:
-            cov_mat = cov_mat ** (1 / cov_func_scale)
-        loglik = scipy.stats.multivariate_normal.logpdf(x, cov=cov_mat)
+            cov_mat = np.power(cov_mat, (1 / cov_func_scale))
+        abs_det = np.linalg.slogdet(cov_mat)[1]
+        loglik = self._std_normal_logpdf(state) - 0.5 * abs_det
         return loglik
 
 
@@ -160,43 +170,29 @@ class SkillsGP:
     }
 
     def _expand_sparse_player_vec(self, arr, idx):
+        """Expand an array of values, arr, into a self.M long array."""
         full_array = np.full(self.M, np.nan)
         full_array[idx] = arr
         return full_array
 
-    def _propose_move_for_player(self, k):
-        """Propose a move for a player.
+    def prior_log_prob(self, cov_func_scale=None):
+        """Total prior log-probability of the current states."""
+        log_probs = [x[0].loglik(cov_func_scale=cov_func_scale)
+                     for x in self.player_skill_vecs]
+        return log_probs
 
-        I.e. for column `k` in self.player_mat.
-        """
-        cov_mat = self.cov_mat[k]
-        move = np.random.multivariate_normal(np.repeat(0.0, cov_mat.shape[0]),
-                                             cov_mat * (self.propose_sd ** 2))
-        return move
+    def cur_skills_mat(self):
+        """Create the current skills matrix."""
+        skills_per_player = [x[0].transformed() for x in self.player_skill_vecs]
+        expanded_skills_vecs = \
+            [self._expand_sparse_player_vec(skills_per_player[k],
+                                            self.player_skill_vecs[k][1])
+             for k in range(self.N)]
+        skills_mat = np.array(expanded_skills_vecs).T
+        return skills_mat
 
-    def _propose_next(self):
-        """Take the latest skills vector and propose the next vector."""
-        prev_skills = self._cur_skills
-        next_moves = [self._propose_move_for_player(k) for k in range(self.N)]
-        next_moves = np.concatenate(next_moves)
-        # next_moves is now in column-to-column order. Change that into
-        # row-by-row order.
-        next_moves = next_moves[self._c_to_r_idx]
-        next_skills = prev_skills + next_moves
-        return next_skills
-
-    def _skills_mat_prior_logprob(self, skills_mat):
-        """Gaussian process log-probability for a matrix of skills."""
-        player_prior_logprobs = []
-        for i in range(self.N):
-            skills_vec = skills_mat[:, i]
-            skills_vec_f = _dropna(skills_vec)
-            logprob = self.prior_multinorm[i](skills_vec_f)
-            player_prior_logprobs.append(logprob)
-        return player_prior_logprobs
-
-    def _match_loglik(self, skills_mat, radiant_adv):
-        """Log-likelihood of the observed outcomes."""
+    def match_loglik(self, skills_mat, radiant_adv):
+        """Compute the current log-likelihood of the observed outcomes."""
         match_win_prob = compute_match_win_prob(self.players_mat, skills_mat,
                                                 radiant_adv,
                                                 self.logistic_scale)
@@ -204,147 +200,92 @@ class SkillsGP:
                                                     match_win_prob)
         return match_loglik
 
-    def skills_vec_to_mat(self, vec):
-        """
-        Fill a vector of values into the slots in self.play_mask row by row.
-
-        Args:
-            vec (numpy.ndarray): 1D array of length self.M * 10. Default:
-                self._cur_skills
-        """
-        flat_mat = np.repeat(np.nan, self.M * self.N)
-        flat_mat[~self.flat_nanmask] = vec
-        mat = flat_mat.reshape(self.M, self.N)
-        return mat
-
-    def compute_log_posterior(self, skills_vec, radiant_adv):
+    def cur_log_posterior(self, radiant_adv, cov_func_scale=None):
         """Compute the log posterior probability of the skills vector."""
-        assert len(skills_vec) == self.M * 10
-        skills_mat = self.skills_vec_to_mat(skills_vec)
-        prior_logprob = sum(
-            self._skills_mat_prior_logprob(skills_mat))
-        loglik = np.sum(self._match_loglik(skills_mat, radiant_adv))
-        log_posterior = prior_logprob + loglik
+        prior_logprob = self.prior_log_prob(cov_func_scale)
+        skills_mat = self.cur_skills_mat()
+        match_loglik = self.match_loglik(skills_mat, radiant_adv)
+        log_posterior = np.sum(prior_logprob) + np.sum(match_loglik)
         return log_posterior
 
-    def get_radiant_adv_update(self):
+    def get_updated_radiant_advantage(self):
         """Perform a Metropolis iteration on the Radiant advantage.
 
         Returns the (potentially) updated value as opposed to modifying
         `self` directly.
         """
-        skills_mat = self.skills_vec_to_mat(self._cur_skills)
-        old_match_loglik = np.sum(self._match_loglik(skills_mat,
-                                                     self._cur_radi_adv))
-        new_radi_adv = (self._cur_radi_adv
-                        + np.random.normal(scale=self.radi_offset_proposal_sd))
-        new_match_loglik = np.sum(self._match_loglik(skills_mat,
-                                                     new_radi_adv))
-        if np.log(np.random.uniform()) < new_match_loglik - old_match_loglik:
-            return new_radi_adv
-        else:
-            return self._cur_radi_adv
+        old_win_prob = win_prob(self._cur_skill_diffs, self.logistic_scale)
+        old_match_loglik = np.sum(scipy.stats.bernoulli.logpmf(
+            self.radiant_win, old_win_prob))
 
+        radi_adv_delta = np.random.normal(scale=self.radi_offset_proposal_sd)
+        new_win_prob = win_prob(
+            self._cur_skill_diffs + radi_adv_delta, self.logistic_scale)
+        new_match_loglik = np.sum(scipy.stats.bernoulli.logpmf(
+            self.radiant_win, new_win_prob))
+        if np.log(np.random.uniform()) < new_match_loglik - old_match_loglik:
+            return (self._cur_radi_adv + radi_adv_delta,
+                    self._cur_log_posterior + new_match_loglik
+                    - old_match_loglik)
+        else:
+            return self._cur_radi_adv, self._cur_log_posterior
+
+    @numba.jit(forceobj=True)
     def iterate_once_player_wise(self):
         """Perform a block-wise iteration across all players."""
         # First iterate on the radiant advantage offset.
-        self._cur_radi_adv = self.get_radiant_adv_update()
+        new_radi_adv, new_log_posterior = self.get_updated_radiant_advantage()
+        if new_radi_adv != self._cur_radi_adv:
+            self._cur_skill_diffs += new_radi_adv - self._cur_radi_adv
+            self._cur_radi_adv = new_radi_adv
+            self._cur_log_posterior = new_log_posterior
 
         # Then update each player's skills in turn.
-        old_skills_mat = self.skills_vec_to_mat(self._cur_skills)
-        transitioned_skills_mat = old_skills_mat.copy()
+        # transitioned_skills_mat is used for storing the updated values per
+        # player.
         for i in range(self.N):
+            player_skills_gp = self.player_skill_vecs[i][0]
+            match_idx = self.player_skill_vecs[i][1]
+            skills_delta = np.random.normal(scale=self.propose_sd,
+                                            size=len(match_idx))
+
             # Compute the prior probability portion.
-            next_move = self._propose_move_for_player(i)
-            old_skills_vec = _dropna(old_skills_mat[:, i])
-            new_skills_vec = old_skills_vec + next_move
-            old_prior_lprob = self.prior_multinorm[i](old_skills_vec)
-            new_prior_lprob = self.prior_multinorm[i](new_skills_vec)
+            old_prior_lprob = player_skills_gp.loglik()
+            new_prior_lprob = player_skills_gp.loglik(skills_delta)
 
             # Compute the match likelihood portion.
-            affected_matches = ~self.nanmask[:, i]
-            old_match_win_prob = compute_match_win_prob(
-                self.players_mat[affected_matches, :],
-                old_skills_mat[affected_matches, :], self._cur_radi_adv,
-                self.logistic_scale)
-            new_skills_mat = transitioned_skills_mat[affected_matches, :]
-            new_skills_mat[:, i] = new_skills_vec
-            old_match_loglik = scipy.stats.bernoulli.logpmf(
-                self.radiant_win[affected_matches],
-                old_match_win_prob)
-            new_match_win_prob = compute_match_win_prob(
-                self.players_mat[affected_matches, :], new_skills_mat,
-                self._cur_radi_adv, self.logistic_scale)
-            new_match_loglik = scipy.stats.bernoulli.logpmf(
-                self.radiant_win[affected_matches],
-                new_match_win_prob)
+            old_skill_diffs = self._cur_skill_diffs[match_idx]
+            radiant_win = self.radiant_win[match_idx]
+            old_win_prob = win_prob(old_skill_diffs, self.logistic_scale)
+            old_loglik = scipy.stats.bernoulli.logpmf(radiant_win, old_win_prob)
+            skill_diffs_delta = \
+                (self.players_mat[match_idx, i]
+                 * player_skills_gp.transformed(skills_delta
+                                                - player_skills_gp.state))
+            new_skill_diffs = old_skill_diffs + skill_diffs_delta
+            new_win_prob = win_prob(new_skill_diffs, self.logistic_scale)
+            new_loglik = scipy.stats.bernoulli.logpmf(radiant_win, new_win_prob)
 
-            # Transition?
-            log_bayes_factor = (new_prior_lprob - old_prior_lprob
-                                + sum(new_match_loglik) - sum(old_match_loglik))
+            # Transition in-place?
+            prior_lprob_change = new_prior_lprob - old_prior_lprob
+            match_loglik_change = np.sum(new_loglik) - np.sum(old_loglik)
+            log_bayes_factor = prior_lprob_change + match_loglik_change
             if np.log(np.random.uniform()) < log_bayes_factor:
-                idx = ~self.nanmask[:, i]
-                transitioned_skills_mat[idx, i] = new_skills_vec
-        transitioned_skills_vec = _dropna(transitioned_skills_mat.reshape(-1))
-        # TODO
-        # proposed_log_posterior = self.compute_log_posterior(transitioned_skills_vec)
-        assert len(transitioned_skills_vec) == self.M * 10
-        prior_logprob = sum(
-            self._skills_mat_prior_logprob(transitioned_skills_mat))
-        loglik = np.sum(self._match_loglik(transitioned_skills_mat,
-                                           self._cur_radi_adv))
-        new_log_posterior = prior_logprob + loglik
+                player_skills_gp.state += skills_delta
+                self._cur_skill_diffs[match_idx] = new_skill_diffs
+                self._cur_log_posterior += log_bayes_factor
 
-        # self._cur_skills won't change, if transitioned_skills_mat doesn't
-        # change, which happens when no player's vector got updated.
-        self._cur_skills = transitioned_skills_vec
-        self._cur_log_posterior = new_log_posterior
+        # Increase iteration count. Save current sample?
         self._cur_iter += 1
-
-        # Save the current iteration as a sample?
         if self._cur_iter % self.save_every_n_iter == 0:
-            self.samples.append((self._cur_iter, self._cur_skills,
-                                 self._cur_radi_adv, self._cur_log_posterior,
-                                 prior_logprob, loglik))
+            self.samples.append([(self._cur_iter,
+                                [x[0].state for x in self.player_skill_vecs],
+                                self._cur_radi_adv, self._cur_log_posterior)])
 
-    def iterate_once_full(self):
-        """Perform a full Metropolis iteration."""
-        # First iterate on the radiant advantage offset.
-        self._cur_radi_adv = self.get_radiant_adv_update()
-
-        proposed_skills = self._propose_next()
-        # TODO
-        # proposed_log_posterior = self.compute_log_posterior(proposed_skills)
-        assert len(proposed_skills) == self.M * 10
-        skills_mat = self.skills_vec_to_mat(proposed_skills)
-        prior_logprob = sum(
-            self._skills_mat_prior_logprob(skills_mat))
-        loglik = np.sum(self._match_loglik(skills_mat, self._cur_radi_adv))
-        proposed_log_posterior = prior_logprob + loglik
-
-        # Transition to a new state?
-        log_bayes_factor = proposed_log_posterior - self._cur_log_posterior
-        if np.log(np.random.uniform()) < log_bayes_factor:
-            self._cur_skills = proposed_skills
-            self._cur_log_posterior = proposed_log_posterior
-        self._cur_iter += 1
-
-        # Save the current iteration as a sample?
-        if self._cur_iter % self.save_every_n_iter == 0:
-            self.samples.append((self._cur_iter, self._cur_skills,
-                                 self._cur_radi_adv, self._cur_log_posterior,
-                                 prior_logprob, loglik))
-
-    def iterate(self, n=1, method="full"):
+    def iterate(self, n=1, method="playerwise"):
         """Iterate n times."""
 
-        if method == "full":
-            for i in progressbar.progressbar(range(n)):
-                try:
-                    self.iterate_once_full()
-                except KeyboardInterrupt:
-                    sys.stderr.write(f"Interrupted at iteration {i}.")
-        elif method == "playerwise":
+        if method == "playerwise":
             for i in progressbar.progressbar(range(n)):
                 try:
                     self.iterate_once_player_wise()
@@ -353,6 +294,16 @@ class SkillsGP:
                     break
         else:
             raise ValueError(f"Iteration method '{method}' not recognised.")
+
+        # Check the integrity of the running sums.
+        if not np.allclose(
+                (np.nansum(self.players_mat * self.cur_skills_mat(), 1)
+                 + self._cur_radi_adv),
+                self._cur_skill_diffs):
+            warnings.warn("Loss of integrity with self._cur_skill_diffs")
+        if not np.isclose(self.cur_log_posterior(self._cur_radi_adv),
+                          self._cur_log_posterior):
+            warnings.warn("Loss of integrity with self._cur_log_posterior")
 
     def __init__(self, players_mat, start_times, radiant_win, player_ids,
                  cov_func_name, cov_func_kwargs=None, propose_sd=0.2,
@@ -380,7 +331,7 @@ class SkillsGP:
         self.player_skill_vecs = []
         for k in range(self.N):
             played_matches = np.arange(self.M)[self.players_mat[:, k] != 0.0]
-            initial_values = np.repeat(0.0, sum(played_matches))
+            initial_values = np.repeat(0.0, len(played_matches))
             cov_mat = _played_vec_to_cov_mat(self.cov_func,
                                              self.start_times[played_matches])
             self.player_skill_vecs.append((GPVec(initial_values, cov_mat),
@@ -388,25 +339,18 @@ class SkillsGP:
 
         # Initialise other variables:
         # Current skill differences at each match.
-        skills_per_player = [x[0].transformed() for x in self.player_skill_vecs]
-        expanded_skills_vecs = \
-            [self._expand_sparse_player_vec(skills_per_player[k],
-                                            self.player_skill_vecs[k][1])
-             for x in self.N]
-        skills_mat = np.array(expanded_skills_vecs).T
-        breakpoint()
-        self.cur_skill_diffs = np.nansum(skills_mat * self.players_mat, 1)
-        self.cur_iter = 0
-        self.cur_radi_adv = 0.0
-        cur_log_prior = sum(
-            [x[0].loglik() for x in self.player_skill_vecs])
-        match_win_prob = compute_match_win_prob(self.players_mat, skills_mat,
-                                                self.cur_radi_adv,
-                                                self.logistic_scale)
-        cur_match_loglik = \
-            sum(scipy.stats.bernoulli.logpmf(self.radiant_win, match_win_prob))
-        self.cur_log_posterior = cur_log_prior + cur_match_loglik
-
-        self.samples = [(self.cur_iter, skills_per_player, self.cur_radi_adv,
-                         self.cur_log_posterior, cur_log_prior,
-                         cur_match_loglik, self.cur_log_posterior)]
+        self._cur_iter = 0
+        self._cur_radi_adv = 0.0
+        self._cur_skill_diffs = \
+            (np.nansum(self.players_mat * self.cur_skills_mat(), 1)
+             + self._cur_radi_adv)
+        # TODO: replace with below.
+        # self.cur_log_posterior = self.cur_log_posterior(self._cur_radi_adv)
+        prior_logprob = np.sum(self.prior_log_prob())
+        skills_mat = self.cur_skills_mat()
+        match_loglik = np.sum(self.match_loglik(skills_mat, self._cur_radi_adv))
+        self._cur_log_posterior = prior_logprob + match_loglik
+        self.samples = [(self._cur_iter,
+                        [x[0].state for x in self.player_skill_vecs],
+                        self._cur_radi_adv, self._cur_log_posterior,
+                        prior_logprob, match_loglik)]
