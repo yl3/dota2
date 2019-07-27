@@ -26,10 +26,9 @@ def parse_args():
                              "supported: ti9.")
     parser.add_argument("--n_iters", type=int, default=10000,
                         help="Number of iterations to run. Default: 10000.")
-    parser.add_argument("--scale", type=float,
-                        default=(2 * 365 * 24 * 60 * 60 * 1000),
-                        help="Scaling factor for covariance function (in ms). "
-                             "Default: 2 years.")
+    parser.add_argument("--scale", type=float, default=2,
+                        help="Scaling factor for covariance function (in "
+                             "years). Default: 2 years.")
     parser.add_argument("--sampling_freq", type=int, default=100,
                         help="Save a sample every this many iterations."
                              "Default: 100.")
@@ -39,6 +38,7 @@ def parse_args():
                         help="Scaling factor for the logistic win probability "
                              "function.")
     args = parser.parse_args()
+    args.scale *= 365 * 24 * 60 * 60 * 1000
     return args
 
 

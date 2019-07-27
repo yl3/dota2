@@ -13,6 +13,14 @@ scipy version | time used (seconds) | mean
 
 We are getting just shy of 3 iterations per second.
 
+A notebook run yielded 0.235 seconds per iteration. Compared with the non-optimised rate of 4.8 seconds per iteration, this is a 20-fold improvement.
+
+The model likelihood saturates after around 5000 iterations.
+
+![](static/10000_matches_per_player_sampling.20190726.png)
+
+On an Amazon instance c5.xlarge, running 100 iterations took precisely 17 seconds on five separate runs.
+
 ## 2019-07-25
 
 Added sampling for the radiant advantage.

@@ -98,7 +98,7 @@ class GPVec():
         cov_mat = self.cov_mat
         if cov_func_scale is not None:
             cov_mat = cov_mat ** (1 / cov_func_scale)
-        sd_mat = scipy.linalg.cholesky(cov_mat)
+        sd_mat = scipy.linalg.cholesky(cov_mat, lower=True)
         if state is None:
             state = self.state
         return sd_mat @ state
@@ -254,8 +254,6 @@ class SkillsGP:
             self._cur_log_posterior = new_log_posterior
 
         # Then update each player's skills in turn.
-        # transitioned_skills_mat is used for storing the updated values per
-        # player.
         for i in range(self.N):
             player_skills_gp = self.player_skill_vecs[i][0]
             match_idx = self.player_skill_vecs[i][1]
@@ -280,7 +278,7 @@ class SkillsGP:
             new_loglik = bernoulli_logpmf(radiant_win, new_win_prob)
 
             # Transition in-place?
-            match_loglik_change = np.sum(new_loglik) - np.sum(old_loglik)
+            match_loglik_change = new_loglik - old_loglik
             log_bayes_factor = prior_lprob_change + match_loglik_change
             if np.log(np.random.uniform()) < log_bayes_factor:
                 player_skills_gp.state += skills_delta
