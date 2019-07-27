@@ -290,9 +290,10 @@ class SkillsGP:
         # Increase iteration count. Save current sample?
         self._cur_iter += 1
         if self._cur_iter % self.save_every_n_iter == 0:
-            self.samples.append((self._cur_iter,
-                                 [x[0].state for x in self.player_skill_vecs],
-                                 self._cur_radi_adv, self._cur_log_posterior))
+            cur_states = [x[0].state.copy().astype(np.float64)
+                          for x in self.player_skill_vecs]
+            self.samples.append((self._cur_iter, cur_states, self._cur_radi_adv,
+                                 self._cur_log_posterior))
 
     def iterate(self, n=1, method="playerwise"):
         """Iterate n times."""
