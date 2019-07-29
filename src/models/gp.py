@@ -432,6 +432,8 @@ class SkillsGP:
             self._cur_skill_diffs += radi_adv_delta
             self._cur_radi_adv += radi_adv_delta
             self._cur_log_posterior += log_bayes_factor
+            self._radi_accept_rate[0] += 1
+        self._radi_accept_rate[1] += 1
 
     def iterate_once_player_wise(self):
         """Perform a block-wise iteration across all players."""
@@ -465,6 +467,8 @@ class SkillsGP:
                 player_skills_gp.state += skills_delta
                 self._cur_skill_diffs[match_idx] += skill_diffs_delta
                 self._cur_log_posterior += log_bayes_factor
+                self._skills_accept_rate[0] += 1
+            self._skills_accept_rate[1] += 1
 
     def iterate(self, n=1, method="playerwise"):
         """Iterate n times."""
@@ -518,6 +522,8 @@ class SkillsGP:
         self.samples = GPSampleSet(players_mat, player_ids, self.logistic_scale,
                                    players_mat.index)
         self.radiant_win = np.where(radiant_win, 1, 0)
+        self._radi_accept_rate = [0, 0]
+        self._skills_accept_rate = [0, 0]
 
         # Initialise running variables and the zero'th iteration.
         def cov_func(coords):

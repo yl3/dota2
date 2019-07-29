@@ -1,5 +1,9 @@
 # Notes
 
+## 2019-07-29
+
+Despite now saving the transformed values at each iteration, sampling rate is still 100 iterations per 29 seconds (tested once on a notebook). So not too much affected.
+
 ## 2019-07-26
 
 By calculating log-prior probability change based on a state change without explicitly computing the log determinant term (which cancels out), we now get to <1 seconds per iteration.
