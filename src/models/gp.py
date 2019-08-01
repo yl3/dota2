@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 import progressbar
 import scipy.linalg
+import scipy.optimize
 import scipy.spatial.distance
 import scipy.stats
 import warnings
@@ -372,6 +373,35 @@ class SkillsGP:
             [x[0].transformed() for x in self.player_skill_vecs],
             self._cur_radi_adv, self._cur_log_posterior)
 
+    def _match_of_skill_idx(self):
+        """
+        Return index vector of length self.M * 10, where each value m_i in
+        range(self.M) corresponds to match m_i where skill i is involved in.
+        """
+        match_of_skill_idx = np.concatenate(
+            [np.arange(self.M)[self.players_mat.values[:, k] != 0]
+             for k in range(self.N)])
+        return match_of_skill_idx
+
+    def _sign_of_skill_idx(self):
+        """
+        Return a sign vector of +1 or -1 for each value in the skills vector.
+        """
+        return self.players_mat.values.T[self.players_mat.values.T != 0.0]
+
+    def _skill_idx_of_match(self):
+        """
+        Return index vector of length self.M, where each value a_m is in
+        range(self.M * 10) and corresponds to the indices i of the skills that
+        are part of match m. The skills vector "fill" the skills matrix column
+        by column.
+        """
+        skill_idx_mat = np.full(self.players_mat.shape, -1).T
+        skill_idx_mat[self.players_mat.values.T != 0.0] = np.arange(self.M * 10)
+        skill_idx_of_match = [skill_idx_mat[skill_idx_mat[:, k] != -1, k]
+                              for k in range(self.M)]
+        return skill_idx_of_match
+
     def prior_log_prob(self, cov_func_scale=None):
         """Total prior log-probability of the current states."""
         log_probs = [x[0].loglik(cov_func_scale=cov_func_scale)
@@ -497,6 +527,138 @@ class SkillsGP:
         if not np.isclose(self.cur_log_posterior(self._cur_radi_adv),
                           self._cur_log_posterior):
             warnings.warn("Loss of integrity with self._cur_log_posterior")
+
+    def fit(self, initial_skills=None, initial_radi_adv=0.0):
+        """Perform a Newton-Raphson fit of the model.
+
+        Args:
+            initial_skills (numpy.ndarray): A 1D array of skills of each player
+                in each match. Default: every player's skills start from 0.0.
+            initial_radi_adv (float): Initial Radiant advantage.
+
+        Returns:
+            tuple: A tuple of fitted skills and fitted Radiant advantage.
+        """
+        # Compute some values used in each iteration.
+        cov_mats = [x[0].cov_mat for x in self.player_skill_vecs]
+        minus_inv_cov_mats = [-scipy.linalg.inv(x) for x in cov_mats]
+        # Indices of games played by each player in range(self.N).
+        played_vecs = self.samples.games_by_player
+        # For each game in played_vecs, which side did the player play on?
+        played_sides = [self.players_mat.values[played_vecs[k], k]
+                        for k in range(self.N)]
+        match_of_skill_idx = self._match_of_skill_idx()
+        sign_of_skill_idx = self._sign_of_skill_idx()
+        skill_idx_of_match = self._skill_idx_of_match()
+        lineup_of_skill_idx = [skill_idx_of_match[m]
+                               for m in match_of_skill_idx]
+
+        def minus_full_loglik(params):
+            skills, radi_adv = params[:-1], params[-1]
+
+            # Compute the skills prior probabilities.
+            skill_prior_lprobs = []
+            for k in range(self.N):
+                start, end = self.samples.skill_vec_idx_of_player[k]
+                cur_skills = skills[start:end]
+                skill_prior_lprobs.append(
+                    scipy.stats.multivariate_normal.logpdf(cur_skills,
+                                                           cov=cov_mats[k]))
+
+            # Compute the prior probability for the Radiant advantage.
+            radi_adv_lprob = scipy.stats.norm.logpdf(radi_adv,
+                                                     scale=self.radi_prior_sd)
+
+            # Compute the match log-likelihoods.
+            match_loglik = self.match_loglik(
+                self.samples._skills_vec_to_mat(skills), radi_adv)
+            total_loglik = (np.sum(skill_prior_lprobs) + radi_adv_lprob
+                            + match_loglik)
+            return -total_loglik
+
+        def minus_gradient(params):
+            skills, radi_adv = params[:-1], params[-1]
+            skills_mat = self.samples._skills_vec_to_mat(skills)
+
+            # Compute the skills prior term of the gradient.
+            skills_by_player = \
+                [skills[start:end]
+                 for start, end in self.samples.skill_vec_idx_of_player]
+            prior_lprob_gradients_by_player = \
+                [minus_inv_cov_mats[k] @ skills_by_player[k]
+                 for k in range(self.N)]
+
+            # Compute the match log-likelihood term of the gradient.
+            cur_skill_diffs = \
+                np.nansum(skills_mat * self.players_mat, 1) + radi_adv
+            sigma = win_prob(cur_skill_diffs, self.logistic_scale)
+            gradient_coef_of_m = np.where(
+                self.radiant_win == 1.0,
+                (1 - sigma) / self.logistic_scale,
+                -sigma / self.logistic_scale
+            )
+            match_loglik_gradients_by_player = \
+                [played_sides[k] * gradient_coef_of_m[played_vecs[k]]
+                 for k in range(self.N)]
+
+            # Compute Radiant advantage gradient.
+            radi_adv_lprior_gradient = -radi_adv / (self.radi_prior_sd ** 2)
+            radi_adv_loglik_gradient = np.sum(gradient_coef_of_m)
+            radi_adv_gradient = \
+                radi_adv_lprior_gradient + radi_adv_loglik_gradient
+
+            # Combine all the gradient terms.
+            skills_gradients = \
+                (np.concatenate(prior_lprob_gradients_by_player)
+                 + np.concatenate(match_loglik_gradients_by_player))
+            return -np.append(skills_gradients, radi_adv_gradient)
+
+        def minus_hessp(params, p):
+            skills, radi_adv = params[:-1], params[-1]
+            skills_mat = self.samples._skills_vec_to_mat(skills)
+            cur_skill_diffs = \
+                np.nansum(skills_mat * self.players_mat, 1) + radi_adv
+            sigma = win_prob(cur_skill_diffs, self.logistic_scale)
+
+            # Compute the prior probability part of the Hessian * p.
+            p_by_player = \
+                [p[start:end]
+                 for start, end in self.samples.skill_vec_idx_of_player]
+            skills_prior_lprob_hessian_p = np.concatenate(
+                [minus_inv_cov_mats[k] @ p_by_player[k]
+                 for k in range(self.N)])
+            radi_adv_lprob_hessian_p = -1 / (self.radi_prior_sd ** 2) * p[-1]
+            prior_lprob_hessian_p = np.append(skills_prior_lprob_hessian_p,
+                                              radi_adv_lprob_hessian_p)
+
+            # Compute the match likelihood part of the Hessian * p.
+            # Hessian coefs are the Hessian coefficients of each match apart
+            # from the signs that need to be multiplied in.
+            hessian_coefs_of_m = \
+                -(sigma * (1 - sigma)) / (self.logistic_scale ** 2)
+            temp = \
+                np.array([np.sum(sign_of_skill_idx[lm]
+                                 * hessian_coefs_of_m[match_of_skill_idx[lm[0]]]
+                                 * p[lm])
+                          for lm in lineup_of_skill_idx])
+            temp += hessian_coefs_of_m[match_of_skill_idx] * p[-1]
+            hessp_of_skill_idx = temp * sign_of_skill_idx
+            # Add the last row of the Hessian involving d r d x_i (and multiply
+            # by p).
+            temp = np.sum(sign_of_skill_idx * p[:-1]
+                          * hessian_coefs_of_m[match_of_skill_idx])
+            temp += np.sum(hessian_coefs_of_m * p[-1])
+            hessp_of_skill_idx = np.append(hessp_of_skill_idx, temp)
+
+            total_hessp = prior_lprob_hessian_p + hessp_of_skill_idx
+            return -total_hessp
+
+        def callback(xk):
+            print("Iteration.")
+        return scipy.optimize.minimize(
+            minus_full_loglik, np.zeros(self.M * 10 + 1), method='Newton-CG',
+            jac=minus_gradient, hessp=minus_hessp, options=dict(disp=True),
+            callback=callback)
 
     def __init__(self, players_mat, start_times, radiant_win, player_ids,
                  cov_func_name, cov_func_kwargs=None, propose_sd=0.2,

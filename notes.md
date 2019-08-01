@@ -4,6 +4,29 @@
 
 Despite now saving the transformed values at each iteration, sampling rate is still 100 iterations per 29 seconds (tested once on a notebook). So not too much affected.
 
+### Deriving the Hessian function.
+
+Our parameter vector contains of $n + 1$ values. $n$ of these form a skills vector (that fill a skills matrix column by column). The final value is the current Radiant advantage column.
+
+For the skills vector, the Hessian matrix can be decomposed into two components: the prior probability and the match likelihood.
+
+The prior probability Hessian matrix is just a block diagonal matrix composed of the inverse of covariance matrices; see [Gradient and Hessian of the posterior probability](#Gradient-and-Hessian-of-the-posterior-probability.). The final value of this matrix, $H_{n+1, n+1}^\text{prior}$, is simply $\frac{-1}{\text{self.radi_prior_sd}^2}$.
+
+The match log-likelihood part of the Hessian, $H^\text{match}$, is a bit more complicated. This is also a $(n+1) \times (n+1)$ matrix. Let $\sigma(d) = \frac{1}{1 + \exp(-d / l)}$, where $d$ is the skill difference and $l$ is the logistic scaling factor. The twice differentiated match log-likelihoods with respect to parameters $i$ and $j$ is the following.
+
+$$\frac{\partial^2 \text{match logliks}}{\partial x_i \partial x_j} = \sum_{\text{match } m} -\frac{s_{i, m} s_{j, m}}{l^2} (\sigma(d)(1 - \sigma(d))),$$
+
+where $s_{i, m}$ is 1 or 0 depending on whether parameter $i$ is Radiant or Dire in match $m$.
+
+It's noteworthy that each skill participates only in one match, and each match is affected by ten skills and the Radiant advantage parameter.
+
+Thus, in each row $i$ of $H^\text{match}$ but the last one, all but 11 values are zero: the ten values corresponding to the ten skills participating in the match where skill $i$ is, plus the radiant advantage term. The sign of these non-zero values must be multiplied with dot product with the input vector $p$. Thus, for each row $i$, we need two arrays.
+
+* An index array $index_i$ indicating all the players in the current match.
+* A sign array, $sign_i$ indicating the side of each respective player.
+
+We also need an overall length $n$ sign vector for each row $i$. Then, $(H^\text{match} p)_i = -\frac{(\sigma(d)(1 - \sigma(d)))}{l^2}\sum sign_i \times p[index_i]$.
+
 ## 2019-07-26
 
 By calculating log-prior probability change based on a state change without explicitly computing the log determinant term (which cancels out), we now get to <1 seconds per iteration.
@@ -107,7 +130,7 @@ block_diag_mat = scipy.linalg.block_diag(
 return block_diag_mat @ self.skills.T
 ```
 
-The Hessian of the multivariate normal (w.r.t. means) is simply $\Sigma^{-1}$ ([source](https://stats.stackexchange.com/questions/27436/how-to-take-derivative-of-multivariate-normal-density)).
+The Hessian of the multivariate normal (w.r.t. means) is simply $-\Sigma^{-1}$ ([source](https://stats.stackexchange.com/questions/27436/how-to-take-derivative-of-multivariate-normal-density)).
 
 In terms of the likelihood with regards to match outcomes, the Jacobian and the Hessian for logistic regression can be found [here](https://stats.stackexchange.com/questions/68391/hessian-of-logistic-function).
 
