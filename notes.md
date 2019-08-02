@@ -1,5 +1,17 @@
 # Notes
 
+## 2019-08-01
+
+After optimisation of the Newton fitting code, 
+
+## 2019-07-31
+
+Rather amazingly, the GP model was correctly fitted numerically using Newton-CG at first try. Fitting the TI9 dataset took one minute(!).
+
+Still refactoring and optimisation to be done. After that, we can proceed to perform backtesting.
+
+Fitting the full model on 5000 matches takes 2 hours.
+
 ## 2019-07-29
 
 Despite now saving the transformed values at each iteration, sampling rate is still 100 iterations per 29 seconds (tested once on a notebook). So not too much affected.

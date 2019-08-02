@@ -528,6 +528,7 @@ class SkillsGP:
                           self._cur_log_posterior):
             warnings.warn("Loss of integrity with self._cur_log_posterior")
 
+    @profile
     def fit(self, initial_skills=None, initial_radi_adv=0.0):
         """Perform a Newton-Raphson fit of the model.
 
@@ -539,6 +540,7 @@ class SkillsGP:
         Returns:
             tuple: A tuple of fitted skills and fitted Radiant advantage.
         """
+        print("Starting...")
         # Compute some values used in each iteration.
         cov_mats = [x[0].cov_mat for x in self.player_skill_vecs]
         minus_inv_cov_mats = [-scipy.linalg.inv(x) for x in cov_mats]
@@ -549,10 +551,12 @@ class SkillsGP:
                         for k in range(self.N)]
         match_of_skill_idx = self._match_of_skill_idx()
         sign_of_skill_idx = self._sign_of_skill_idx()
-        skill_idx_of_match = self._skill_idx_of_match()
-        lineup_of_skill_idx = [skill_idx_of_match[m]
-                               for m in match_of_skill_idx]
+        skills_by_match_order = np.argsort(match_of_skill_idx)
+        # skill_idx_of_match = self._skill_idx_of_match()
+        # lineup_of_skill_idx = [skill_idx_of_match[m]
+        #                        for m in match_of_skill_idx]
 
+        @profile
         def minus_full_loglik(params):
             skills, radi_adv = params[:-1], params[-1]
 
@@ -576,6 +580,7 @@ class SkillsGP:
                             + match_loglik)
             return -total_loglik
 
+        @profile
         def minus_gradient(params):
             skills, radi_adv = params[:-1], params[-1]
             skills_mat = self.samples._skills_vec_to_mat(skills)
@@ -613,11 +618,13 @@ class SkillsGP:
                  + np.concatenate(match_loglik_gradients_by_player))
             return -np.append(skills_gradients, radi_adv_gradient)
 
+        @profile
         def minus_hessp(params, p):
             skills, radi_adv = params[:-1], params[-1]
-            skills_mat = self.samples._skills_vec_to_mat(skills)
-            cur_skill_diffs = \
-                np.nansum(skills_mat * self.players_mat, 1) + radi_adv
+            signed_skills = sign_of_skill_idx * skills
+            cur_skills_mat = (signed_skills[skills_by_match_order]
+                              .reshape(-1, 10))
+            cur_skill_diffs = np.sum(cur_skills_mat, 1) + radi_adv
             sigma = win_prob(cur_skill_diffs, self.logistic_scale)
 
             # Compute the prior probability part of the Hessian * p.
@@ -636,18 +643,22 @@ class SkillsGP:
             # from the signs that need to be multiplied in.
             hessian_coefs_of_m = \
                 -(sigma * (1 - sigma)) / (self.logistic_scale ** 2)
-            temp = \
-                np.array([np.sum(sign_of_skill_idx[lm]
-                                 * hessian_coefs_of_m[match_of_skill_idx[lm[0]]]
-                                 * p[lm])
-                          for lm in lineup_of_skill_idx])
-            temp += hessian_coefs_of_m[match_of_skill_idx] * p[-1]
-            hessp_of_skill_idx = temp * sign_of_skill_idx
+            signed_p = sign_of_skill_idx * p[:-1]
+            sign_x_p_x_hessian_coef = (signed_p
+                                       * hessian_coefs_of_m[match_of_skill_idx])
+            # hessp_of_match = np.array(
+            #     [np.sum(sign_x_p_x_hessian_coef[skill_idx])
+            #      for skill_idx in skill_idx_of_match])
+            hessp_of_match = np.sum(
+                sign_x_p_x_hessian_coef[skills_by_match_order].reshape(-1, 10),
+                1)
+            hessp_of_match += hessian_coefs_of_m  # The Radiant advantage term.
+            hessp_of_skill_idx = \
+                hessp_of_match[match_of_skill_idx] * sign_of_skill_idx
             # Add the last row of the Hessian involving d r d x_i (and multiply
             # by p).
-            temp = np.sum(sign_of_skill_idx * p[:-1]
-                          * hessian_coefs_of_m[match_of_skill_idx])
-            temp += np.sum(hessian_coefs_of_m * p[-1])
+            temp = np.sum(signed_p * hessian_coefs_of_m[match_of_skill_idx])
+            temp += np.sum(hessian_coefs_of_m) * p[-1]
             hessp_of_skill_idx = np.append(hessp_of_skill_idx, temp)
 
             total_hessp = prior_lprob_hessian_p + hessp_of_skill_idx
