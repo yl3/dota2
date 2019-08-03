@@ -40,3 +40,16 @@ def match_df_to_player_mat(match_df):
     players_mat = make_match_players_matrix(
         match_df.radiant_players, match_df.dire_players)
     return players_mat
+
+
+def match_df_to_player_df(match_df):
+    """Convert a match data frame into a players data frame.
+
+    A match data frame is (for example) an output of `src.load.all_matches_df`.
+    """
+    players = player_id_to_player_name(
+        pd.concat([match_df.radiant_players, match_df.dire_players]),
+        pd.concat([match_df.radiant_nicknames, match_df.dire_nicknames]),
+        pd.concat([match_df.radiant_valveId, match_df.dire_valveId]),
+        pd.concat([match_df.radiant_name, match_df.dire_name]))
+    return players

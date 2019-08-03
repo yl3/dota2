@@ -1,5 +1,89 @@
 # Notes
 
+## 2019-08-02
+
+Tested multipying a vector with the players matrix (large sparse matrix with 1000 columns and 10 non-zero values per row). As expected, the sparse row format works well with this data.
+
+    641      1513    1036286.0    684.9      0.1              minus_inv_cov_mat2 = scipy.sparse.bsr_matrix(minus_inv_cov_mat)
+    642      1513     109381.0     72.3      0.0              prior_lprob_hessian_p = minus_inv_cov_mat2 @ p
+    643      1513     297690.0    196.8      0.0              minus_inv_cov_mat2 = scipy.sparse.coo_matrix(minus_inv_cov_mat)
+    644      1513     109948.0     72.7      0.0              prior_lprob_hessian_p = minus_inv_cov_mat2 @ p
+    645      1513     569503.0    376.4      0.0              minus_inv_cov_mat2 = scipy.sparse.csc_matrix(minus_inv_cov_mat)
+    646      1513     100190.0     66.2      0.0              prior_lprob_hessian_p = minus_inv_cov_mat2 @ p
+    647      1513     510279.0    337.3      0.0              minus_inv_cov_mat2 = scipy.sparse.csr_matrix(minus_inv_cov_mat)
+    648      1513     100316.0     66.3      0.0              prior_lprob_hessian_p = minus_inv_cov_mat2 @ p
+    649      1513    2859365.0   1889.9      0.2              minus_inv_cov_mat2 = scipy.sparse.dia_matrix(minus_inv_cov_mat)
+    650      1513     166325.0    109.9      0.0              prior_lprob_hessian_p = minus_inv_cov_mat2 @ p
+    651      1513 1222742307.0 808157.5     91.9              minus_inv_cov_mat2 = scipy.sparse.dok_matrix(minus_inv_cov_mat)
+    652      1513   55435132.0  36639.2      4.2              prior_lprob_hessian_p = minus_inv_cov_mat2 @ p
+    653      1513   27084943.0  17901.5      2.0              minus_inv_cov_mat2 = scipy.sparse.lil_matrix(minus_inv_cov_mat)
+    654      1513   19529244.0  12907.6      1.5              prior_lprob_hessian_p = minus_inv_cov_mat2 @ p
+
+We are now fitting the full 5,000 match dataset in four minutes!
+
+    $ time kernprof -l src/scripts/fit.py --method newton --scale 1 newton_fit_ti9.dill 
+    Starting...
+    Iteration.
+    Iteration.
+    Iteration.
+    Iteration.
+    Iteration.
+    Iteration.
+    Iteration.
+    Iteration.
+    Iteration.
+    Iteration.
+    Iteration.
+    Iteration.
+    Iteration.
+    Iteration.
+    Iteration.
+    Iteration.
+    Iteration.
+    Iteration.
+    Optimization terminated successfully.
+             Current function value: -124344.356934
+             Iterations: 18
+             Function evaluations: 19
+             Gradient evaluations: 36
+             Hessian evaluations: 9200
+    Wrote profile results to fit.py.lprof
+    
+    real	2m21.133s
+    user	4m4.251s
+    sys	0m25.889s
+
+The following two hard to further optimize lines consume most of the time.
+
+    574     18525      29337.0      1.6      0.1                      scipy.stats.multivariate_normal.logpdf(cur_skills,
+    575     18525   32946603.0   1778.5     92.7                                                             cov=cov_mats[k]))  # ~ 33 seconds
+    
+    649      9200   76918388.0   8360.7     86.1              prior_lprob_hessian_p = minus_inv_cov_mat @ p  # ~ 77 seconds
+
+By avoiding the `scipy.stats.multivariate_normal.logpdf()` call, we are shaving another 40 seconds off.
+
+    ...
+    Iteration.
+    Optimization terminated successfully.
+             Current function value: -124344.356934
+             Iterations: 18
+             Function evaluations: 19
+             Gradient evaluations: 36
+             Hessian evaluations: 9200
+    Wrote profile results to fit.py.lprof
+    
+    real	1m55.819s
+    user	3m20.333s
+    sys	0m18.136s
+
+    573                                                           # skill_prior_lprobs.append(
+    574                                                           #     scipy.stats.multivariate_normal.logpdf(cur_skills,
+    575                                                           #                                            cov=cov_mats[k]))
+    576     18525     211987.0     11.4      4.3                  x = inv_sd_mats[k] @ cur_skills
+    577     18525      13341.0      0.7      0.3                  abs_det = abs_log_dets[k]
+    578     18525    3183719.0    171.9     64.1                  temp = np.sum(scipy.stats.norm.logpdf(x)) - 0.5 * abs_det
+    579     18525      22310.0      1.2      0.4                  skill_prior_lprobs.append(temp)
+
 ## 2019-07-29
 
 Despite now saving the transformed values at each iteration, sampling rate is still 100 iterations per 29 seconds (tested once on a notebook). So not too much affected.

@@ -539,9 +539,17 @@ class SkillsGP:
         Returns:
             tuple: A tuple of fitted skills and fitted Radiant advantage.
         """
+        print("Starting...")
         # Compute some values used in each iteration.
         cov_mats = [x[0].cov_mat for x in self.player_skill_vecs]
+        inv_sd_mats = [scipy.linalg.inv(scipy.linalg.cholesky(x, lower=True))
+                       for x in cov_mats]
+        abs_log_dets = [np.linalg.slogdet(x)[1] for x in cov_mats]
         minus_inv_cov_mats = [-scipy.linalg.inv(x) for x in cov_mats]
+        radi_adv_cov_mat = np.full((1, 1), -1 / (self.radi_prior_sd ** 2))
+        minus_inv_cov_mat = scipy.sparse.block_diag(
+            minus_inv_cov_mats + [radi_adv_cov_mat],
+            format='csr')
         # Indices of games played by each player in range(self.N).
         played_vecs = self.samples.games_by_player
         # For each game in played_vecs, which side did the player play on?
@@ -549,21 +557,24 @@ class SkillsGP:
                         for k in range(self.N)]
         match_of_skill_idx = self._match_of_skill_idx()
         sign_of_skill_idx = self._sign_of_skill_idx()
-        skill_idx_of_match = self._skill_idx_of_match()
-        lineup_of_skill_idx = [skill_idx_of_match[m]
-                               for m in match_of_skill_idx]
+        skills_by_match_order = np.argsort(match_of_skill_idx)
 
         def minus_full_loglik(params):
             skills, radi_adv = params[:-1], params[-1]
 
             # Compute the skills prior probabilities.
             skill_prior_lprobs = []
+
             for k in range(self.N):
                 start, end = self.samples.skill_vec_idx_of_player[k]
                 cur_skills = skills[start:end]
-                skill_prior_lprobs.append(
-                    scipy.stats.multivariate_normal.logpdf(cur_skills,
-                                                           cov=cov_mats[k]))
+                # skill_prior_lprobs.append(
+                #     scipy.stats.multivariate_normal.logpdf(cur_skills,
+                #                                            cov=cov_mats[k]))
+                x = inv_sd_mats[k] @ cur_skills
+                abs_det = abs_log_dets[k]
+                temp = np.sum(scipy.stats.norm.logpdf(x)) - 0.5 * abs_det
+                skill_prior_lprobs.append(temp)
 
             # Compute the prior probability for the Radiant advantage.
             radi_adv_lprob = scipy.stats.norm.logpdf(radi_adv,
@@ -615,39 +626,44 @@ class SkillsGP:
 
         def minus_hessp(params, p):
             skills, radi_adv = params[:-1], params[-1]
-            skills_mat = self.samples._skills_vec_to_mat(skills)
-            cur_skill_diffs = \
-                np.nansum(skills_mat * self.players_mat, 1) + radi_adv
+            signed_skills = sign_of_skill_idx * skills
+            cur_skills_mat = (signed_skills[skills_by_match_order]
+                              .reshape(-1, 10))
+            cur_skill_diffs = np.sum(cur_skills_mat, 1) + radi_adv
             sigma = win_prob(cur_skill_diffs, self.logistic_scale)
 
-            # Compute the prior probability part of the Hessian * p.
-            p_by_player = \
-                [p[start:end]
-                 for start, end in self.samples.skill_vec_idx_of_player]
-            skills_prior_lprob_hessian_p = np.concatenate(
-                [minus_inv_cov_mats[k] @ p_by_player[k]
-                 for k in range(self.N)])
-            radi_adv_lprob_hessian_p = -1 / (self.radi_prior_sd ** 2) * p[-1]
-            prior_lprob_hessian_p = np.append(skills_prior_lprob_hessian_p,
-                                              radi_adv_lprob_hessian_p)
+            # # Compute the prior probability part of the Hessian * p.
+            # p_by_player = \
+            #     [p[start:end]
+            #      for start, end in self.samples.skill_vec_idx_of_player]
+            # skills_prior_lprob_hessian_p = np.concatenate(
+            #     [minus_inv_cov_mats[k] @ p_by_player[k]
+            #      for k in range(self.N)])
+            # radi_adv_lprob_hessian_p = -1 / (self.radi_prior_sd ** 2) * p[-1]
+            # prior_lprob_hessian_p = np.append(skills_prior_lprob_hessian_p,
+            #                                   radi_adv_lprob_hessian_p)
+            prior_lprob_hessian_p = minus_inv_cov_mat @ p
 
             # Compute the match likelihood part of the Hessian * p.
             # Hessian coefs are the Hessian coefficients of each match apart
             # from the signs that need to be multiplied in.
             hessian_coefs_of_m = \
                 -(sigma * (1 - sigma)) / (self.logistic_scale ** 2)
-            temp = \
-                np.array([np.sum(sign_of_skill_idx[lm]
-                                 * hessian_coefs_of_m[match_of_skill_idx[lm[0]]]
-                                 * p[lm])
-                          for lm in lineup_of_skill_idx])
-            temp += hessian_coefs_of_m[match_of_skill_idx] * p[-1]
-            hessp_of_skill_idx = temp * sign_of_skill_idx
+            signed_p = sign_of_skill_idx * p[:-1]
+            sign_x_p_x_hessian_coef = (signed_p
+                                       * hessian_coefs_of_m[match_of_skill_idx])
+            hessp_of_match = np.sum(
+                sign_x_p_x_hessian_coef[skills_by_match_order].reshape(-1, 10),
+                1)
+            # Add the Radiant advantage term.
+            hessp_of_match += hessian_coefs_of_m * p[-1]
+            hessp_of_skill_idx = \
+                hessp_of_match[match_of_skill_idx] * sign_of_skill_idx
+
             # Add the last row of the Hessian involving d r d x_i (and multiply
             # by p).
-            temp = np.sum(sign_of_skill_idx * p[:-1]
-                          * hessian_coefs_of_m[match_of_skill_idx])
-            temp += np.sum(hessian_coefs_of_m * p[-1])
+            temp = np.sum(signed_p * hessian_coefs_of_m[match_of_skill_idx])
+            temp += np.sum(hessian_coefs_of_m) * p[-1]
             hessp_of_skill_idx = np.append(hessp_of_skill_idx, temp)
 
             total_hessp = prior_lprob_hessian_p + hessp_of_skill_idx
@@ -667,8 +683,8 @@ class SkillsGP:
                  initial_sample=None):
         # Some basic sanity checks.
         # 10 players per game?
-        # assert all(np.nansum(np.abs(players_mat), 1) == 10)
-        # assert all(np.nansum(players_mat, 1) == 0)  # 5 a side?
+        assert all(np.nansum(np.abs(players_mat), 1) == 10)
+        assert all(np.nansum(players_mat, 1) == 0)  # 5 a side?
 
         # Save basic data.
         assert isinstance(players_mat, pd.DataFrame)
