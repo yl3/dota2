@@ -1,5 +1,39 @@
 # Notes
 
+## 2019-08-04
+
+After refactoring the Newton-CG fitting code, the fitted results (approximately) match with the old code's results.
+
+New results:
+
+         fun: -7251.013162612669
+         jac: array([ 2.71426880e-06, -1.04306676e-06, -5.06777520e-06, ...,
+           -1.59853553e-05,  1.18502236e-05, -6.97227832e-06])
+     message: 'Optimization terminated successfully.'
+        nfev: 18
+        nhev: 2136
+         nit: 16
+        njev: 33
+      status: 0
+     success: True
+           x: array([-0.28622649, -0.28618457, -0.28613565, ..., -0.16674437,
+           -0.16678098, -0.08426551])
+
+Old results from `10-test_numerical_optimisation.20190731.ipynb`:
+
+         fun: -7251.013162612677
+         jac: array([-7.38146256e-06, -5.53450919e-06, -6.69449200e-06, ...,
+            2.25451113e-05,  1.21444848e-06,  5.19662969e-06])
+     message: 'Optimization terminated successfully.'
+        nfev: 18
+        nhev: 2154
+         nit: 16
+        njev: 33
+      status: 0
+     success: True
+           x: array([-0.28622646, -0.28618455, -0.28613563, ..., -0.16674435,
+           -0.16678095, -0.08426547])
+
 ## 2019-08-02
 
 Tested multipying a vector with the players matrix (large sparse matrix with 1000 columns and 10 non-zero values per row). As expected, the sparse row format works well with this data.
