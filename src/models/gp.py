@@ -36,7 +36,6 @@ def exp_cov_mat(x, scale=1.0):
     return cov_mat
 
 
-# DELETE: def win_prob(skill_diff, scaling_factor):
 def logistic_win_prob(skill_diff, scaling_factor):
     """Win probability for Radiant given a skill difference.
 
@@ -49,209 +48,9 @@ def logistic_win_prob(skill_diff, scaling_factor):
     return win_prob
 
 
-# DELETE:
-# def compute_match_win_prob(players_mat, skills_mat, radi_offset, *args):
-#     """Compute the win probability of each match.
-#
-#     `radi_offset` is the offset advantage for the Radiant team.
-#     """
-#     match_skills_diff = np.nansum(players_mat * skills_mat, 1) + radi_offset
-#     match_win_prob = win_prob(match_skills_diff, *args)
-#     return match_win_prob
-
-
-# DELETE:
-# def _dist_to_cov_mat(cov_func, played_vec):
-#     """Convert a vector of 1D positions to a covariance matrix."""
-#     return cov_func(played_vec)
-
-
 def _dropna(a):
     """Drop nans from a 1D numpy array."""
     return a[~np.isnan(a)]
-
-
-class GPSample:
-    """A lightweight container for GP samples."""
-    def __init__(self, iter, skills, radi_adv, log_posterior):
-        self.iter = iter
-        self.skills = skills.astype(np.float64)
-        self.radi_adv = radi_adv
-        self.log_posterior = log_posterior
-
-    def __str__(self):
-        return "[{}] log_posterior: {}, radi_adv: {}, skills: {}".format(
-            self.iter, self.log_posterior, self.radi_adv, self.skills)
-
-
-class GPSampleSet:
-    """Container for storing and quering samples from a GP.
-
-    Samples are stored as a 1D array.
-
-    Arguments:
-        players_mat (numpy.ndarray): A 2D array of 0, +1 or -1 values
-            indicating whether each player (column) played for the
-            radiant (+1) or dire (-1) side for each match (row).
-        players (pandas.Series): A series of player names indexed by
-            player ID. They are considered to be in the same order as
-            the columns in `players_mat`.
-        match_index (pd.Index): An indexer for matches.
-
-    Attributes:
-        N (int): Number of players.
-        samples (pd.Series): A series of 1D skills vectors.
-    """
-    # def _compute_games_of_players(self, players_mat):
-    #     """Return a list of indices for matches in which each player played."""
-    #     res = [np.where(players_mat.iloc[:, k] != 0)[0]
-    #            for k in range(players_mat.shape[1])]
-    #     return res
-
-    # def _compute_skill_vec_idx_of_player(self, match_idx_of_players):
-    #     """
-    #     In a flattened skills vector, return the start (0-based) and end
-    #     coordinates of the values of the player.
-    #     """
-    #     idx_offsets = np.cumsum([0] + [len(x) for x in match_idx_of_players])
-    #     return list(zip(idx_offsets[:-1], idx_offsets[1:]))
-
-    # def _skills_vec_to_mat(self, skills_vec):
-    #     """Convert a skills vector into a skills matrix."""
-    #     full_skills_vec = np.repeat(np.nan, self.M * self.N)
-    #     full_skills_vec[self._played_idx] = skills_vec
-    #     skills_mat = full_skills_vec.reshape((self.M, self.N), order='F')
-    #     return skills_mat
-
-    def _sample_to_radi_win_prob(self, sample):
-        """Compute the per-match win probability of a sample."""
-        skills_mat = self._skills_vec_to_mat(sample.skills)
-        skill_diffs = (np.nansum(skills_mat * self.players_mat, 1)
-                       + sample.radi_adv)
-        win_prob_vec = win_prob(skill_diffs, self.win_prob_scale)
-        return win_prob_vec
-
-    # def __str__(self):
-    #     return "\n".join([str(x) for x in self.samples])
-
-    # def add_sample(self, iter, skills_by_player, radi_adv, log_posterior):
-    #     """Add a sample.
-    #
-    #     Arguments:
-    #         iter (int): Current iterations.
-    #         skills_by_player (list): A list of 1D arrays of skills per
-    #             player.
-    #         radi_adv (float): The radiant advantage in skills.
-    #         log_posterior (float): The log-posterior of the current
-    #             iteration.
-    #         win_prob_scale (float): Scaling factor for the win
-    #             probability function.
-    #     """
-    #     assert len(skills_by_player) == self.N
-    #     concatenated_skills = np.concatenate(skills_by_player)
-    #     assert len(concatenated_skills) == self.skills_vec_len
-    #     assert iter not in self.samples
-    #     self.samples[iter] = GPSample(iter, concatenated_skills, radi_adv,
-    #                                   log_posterior)
-
-    def skills_vec_of_kth_player(self, sample, k):
-        """Skills vector of the k'th player from a sample."""
-        start, end = self.skill_vec_idx_of_player[k]
-        return sample.skills[start:end]
-
-    def player_skill_by_sample(self, player, sample_slice=slice(None)):
-        """Return a matrix (iteration * match) of skills."""
-        if isinstance(player, int):
-            idx = np.where(self.players.index == player)[0]
-        elif isinstance(player, str):
-            idx = np.where(self.players == player)[0]
-        if len(idx) != 1:
-            raise ValueError(f"Found {len(idx)} matches for {player}.")
-        else:
-            idx = idx[0]
-        skill_by_match_mat = np.array([self.skills_vec_of_kth_player(s, idx)
-                                       for s in self.samples[sample_slice]])
-        iters = pd.Series([s.iter for s in self.samples[sample_slice]],
-                          name='iter')
-        skills_by_match_df = pd.DataFrame(
-            skill_by_match_mat, index=iters,
-            columns=self.match_index[self.games_by_player[idx]])
-        return skills_by_match_df
-
-    def team_skill_by_sample(self, side="radiant", sample_slice=slice(None)):
-        """
-        Return a matrix of (iteration * match) of total skills of a team
-        (either Radiant or Dire).
-        """
-        if side == "radiant":
-            idx = self.players_mat == 1
-        elif side == "dire":
-            idx = self.players_mat == -1
-        else:
-            raise ValueError("side must be either 'radiant' or 'dire'.")
-
-        def skills_mat_to_team_Skill(skills_mat):
-            return np.sum(np.where(idx, skills_mat, 0.0), 1)
-        team_skill_mat = np.array(
-            [skills_mat_to_team_Skill(self._skills_vec_to_mat(x.skills))
-             for x in self.samples[sample_slice]])
-        iters = pd.Series([s.iter for s in self.samples[sample_slice]],
-                          name='iter')
-        team_skill_df = pd.DataFrame(
-            team_skill_mat, index=iters,
-            columns=self.match_index)
-        return team_skill_df
-
-    def radi_adv_by_sample(self, sample_slice=slice(None)):
-        """Return a series of Radiant advantages by iteration."""
-        samples = self.samples[sample_slice]
-        radi_advs = [s.radi_adv for s in samples]
-        iters = [s.iter for s in samples]
-        return pd.Series(radi_advs, index=pd.Index(iters, name="iter"))
-
-    def radi_win_prob_by_sample(self, sample_slice=slice(None)):
-        """Return a matrix (iteration * match) of Radiant win probabilities."""
-        win_prob_mat = np.array([self._sample_to_radi_win_prob(s)
-                                 for s in self.samples[sample_slice]])
-        iters = [s.iter for s in self.samples[sample_slice]]
-        win_prob_df = pd.DataFrame(
-            win_prob_mat, index=pd.Index(iters, name="iter"),
-            columns=self.match_index)
-        return win_prob_df
-
-    def __init__(self, players_mat, players, win_prob_scale, match_index=None):
-        # self.players = players
-        # self.players_mat = players_mat
-        # self.games_by_player = self._compute_games_of_players(players_mat)
-        # self.skill_vec_idx_of_player = \
-        #     self._compute_skill_vec_idx_of_player(self.games_by_player)
-        # self.M = players_mat.shape[0]
-        # self.N = players_mat.shape[1]
-        # self.skills_vec_len = self.M * 10  # 10 players per match.
-        self.samples = pd.Series([], index=pd.Int64Index([]), dtype=object)
-        self._played_idx = \
-            np.where(players_mat.values.reshape(-1, order='F') != 0)[0]
-        self.win_prob_scale = win_prob_scale
-        self.match_index = match_index
-
-    def from_sample_set(sample_set):
-        """Make a copy from a GPSampleSet."""
-        newself = GPSampleSet(sample_set.players_mat, sample_set.players,
-                              sample_set.win_prob_scale, sample_set.match_index)
-        newself.samples = sample_set.samples.copy()
-        return newself
-
-    def copy(self):
-        """Return a copied self."""
-        newself = GPSampleSet(self.players_mat, self.players,
-                              self.win_prob_scale, self.match_index)
-        newself.samples = self.samples.copy()
-        return newself
-
-    def __getitem__(self, key):
-        newself = self.copy()
-        newself.samples = newself.samples[key]
-        return newself
 
 
 class SkillsGP:
@@ -286,10 +85,147 @@ class SkillsGP:
         "exponential": exp_cov_mat
     }
 
+    def __init__(self, players_mat, start_times, radiant_win, player_ids,
+                 cov_func_name, cov_func_kwargs=None, radi_prior_sd=1.0,
+                 logistic_scale=0.2):
+        # Some basic sanity checks.
+        assert all(np.nansum(np.abs(players_mat), 1) == 10)
+        assert all(np.nansum(players_mat, 1) == 0)  # 5 a side?
+        assert isinstance(players_mat, pd.DataFrame)
+
+        # Save basic data.
+        self.players_mat = players_mat
+        self.M, self.N = players_mat.shape
+        self.start_times = start_times
+        self.radiant_win = np.where(radiant_win, 1, 0)
+        self.player_ids = player_ids
+        self.radi_prior_sd = radi_prior_sd
+        self.logistic_scale = logistic_scale
+
+        # Pre-compute values.
+        self._games_by_player = self._compute_games_of_players(self.players_mat)
+        self._ngames_by_player = [len(x) for x in self._games_by_player]
+        # Match index corresponding to each skill index.
+        self._match_of_skill_idx = self._match_of_skill_idx()
+        # Side of each element in skill vector.
+        self._sign_of_skill_idx = self._sign_of_skill_idx()
+        # Start and end index of skills corresponding to each player.
+        self._skill_idx_of_player = self._skill_idx_of_player()
+        # self._skills_by_match_order can be used to reorder a skills or
+        # sign vector by match.
+        self._skills_by_match_order = np.argsort(self._match_of_skill_idx)
+
+        def cov_func(coords):
+            return self.COV_FUNCS[cov_func_name](coords, **cov_func_kwargs)
+        self.cov_mats = [cov_func(self.start_times[played_matches])
+                         for played_matches in self._games_by_player]
+
+    def win_prob(self, skill_diffs):
+        return logistic_win_prob(skill_diffs, self.logistic_scale)
+
+    def skills_vec_to_skills_by_player(self, skills_vec):
+        """
+        Convert a length self.M * 10 skills vector into a list of skills by
+        player.
+        """
+        if not hasattr(self, "_skills_vec_split_idx"):
+            self._skills_vec_split_idx = np.cumsum(self._ngames_by_player[:-1])
+        return np.split(skills_vec, self._skills_vec_split_idx)
+
+    def cur_skills_mat(self):
+        """Create the current skills matrix."""
+        skills_per_player = [x[0].transformed() for x in self.player_skill_vecs]
+        expanded_skills_vecs = \
+            [self._expand_sparse_player_vec(skills_per_player[k],
+                                            self.player_skill_vecs[k][1])
+             for k in range(self.N)]
+        skills_mat = np.array(expanded_skills_vecs).T
+        return skills_mat
+
+    def match_skill_diffs(self, skills_vec):
+        """
+        Skill difference in each match, without considering Radiant advantage.
+        """
+        signed_skills = skills_vec * self._sign_of_skill_idx
+        skill_diffs = np.sum(
+            signed_skills[self._skills_by_match_order].reshape(self.M, 10),
+            1)
+        return skill_diffs
+
+    def radi_win_probs(self, skills_vec, radi_adv):
+        """Radiant win probability of a skills vector."""
+        skill_diffs = self.match_skill_diffs(skills_vec) + radi_adv
+        win_probs = self.win_prob(skill_diffs)
+        return win_probs
+
+    def match_team_skills(self, skills_vec, side="radiant"):
+        """
+        Skills of a team in each match, without considering Radiant advantage.
+        """
+        assert side in ["radiant", "dire"]
+        signs_by_match = self._sign_of_skill_idx[self._skills_by_match_order]
+        if side == "radiant":
+            team_signed_skills = skills_vec[self._skills_by_match_order][
+                signs_by_match == 1.0]
+            skill_sums = np.sum(team_signed_skills.reshape(self.M, 5), 1)
+        elif side == "dire":
+            team_signed_skills = skills_vec[self._skills_by_match_order][
+                signs_by_match == -1.0]
+            skill_sums = np.sum(team_signed_skills.reshape(self.M, 5), 1)
+        return skill_sums
+
+    def match_loglik(self, skills_vec, radi_adv):
+        """Compute the current log-likelihood of the observed outcomes."""
+        skill_diffs = self.match_skill_diffs(skills_vec)
+        match_win_prob = self.win_prob(skill_diffs + radi_adv)
+        match_loglik = bernoulli_logpmf(self.radiant_win, match_win_prob)
+        return match_loglik
+
+    def log_posterior(self, skills_vec, radi_adv, inv_sd_mats=None,
+                      abs_log_det=None):
+        """Compute the log-posterior of a skills vector.
+
+        Args:
+            skills_vec (numpy.ndarray): 1D flattened array of skills for each
+                player in each match.
+            radi_adv (float): Radiant advantage.
+            inv_sd_mats (list): A list of matrices A^-1, such that AAt is the
+                covariance matrix of each player. By default calculated from
+                self.cov_mats.
+            abs_log_det (float): The absolute log-determinant of the  (full
+                block diagonal) covariance matrix. By default calculate from
+                self.cov_mats.
+        """
+        if inv_sd_mats is None:
+            inv_sd_mats = \
+                [scipy.linalg.inv(scipy.linalg.cholesky(x, lower=True))
+                 for x in self.cov_mats]
+        if abs_log_det is None:
+            abs_log_dets = [np.linalg.slogdet(x)[1] for x in self.cov_mats]
+            abs_log_det = np.sum(abs_log_dets)
+
+        # Compute the skills prior log-probabilities.
+        skills_of_player = self.skills_vec_to_skills_by_player(skills_vec)
+        stdnorm_prior_lprobs = []
+        for k in range(self.N):
+            x = inv_sd_mats[k] @ skills_of_player[k]
+            stdnorm_loglik = np.sum(scipy.stats.norm.logpdf(x))
+            stdnorm_prior_lprobs.append(stdnorm_loglik)
+        total_skill_prior_lprob = (np.sum(stdnorm_prior_lprobs)
+                                   - 0.5 * abs_log_det)
+
+        # Compute the prior probability for the Radiant advantage.
+        radi_adv_lprob = scipy.stats.norm.logpdf(radi_adv,
+                                                 scale=self.radi_prior_sd)
+
+        # Compute the match log-likelihoods.
+        match_loglik = self.match_loglik(skills_vec, radi_adv)
+        total_loglik = total_skill_prior_lprob + radi_adv_lprob + match_loglik
+        return total_loglik
+
     def _compute_games_of_players(self, players_mat):
         """Return a list of indices for matches in which each player played."""
-        res = [np.where(players_mat.iloc[:, k] != 0)[0]
-               for k in range(players_mat.shape[1])]
+        res = [np.where(players_mat.iloc[:, k] != 0)[0] for k in range(self.N)]
         return res
 
     def _expand_sparse_player_vec(self, arr, idx):
@@ -327,114 +263,10 @@ class SkillsGP:
                               for k in range(self.M)]
         return skill_idx_of_match
 
-    def skills_vec_to_skills_by_player(self, skills_vec):
-        """
-        Convert a length self.M * 10 skills vector into a list of skills by
-        player.
-        """
-        if not hasattr(self, "_skills_vec_split_idx"):
-            self._skills_vec_split_idx = np.cumsum(self._ngames_by_player[:-1])
-        return np.split(skills_vec, self._skills_vec_split_idx)
-
-    def cur_skills_mat(self):
-        """Create the current skills matrix."""
-        skills_per_player = [x[0].transformed() for x in self.player_skill_vecs]
-        expanded_skills_vecs = \
-            [self._expand_sparse_player_vec(skills_per_player[k],
-                                            self.player_skill_vecs[k][1])
-             for k in range(self.N)]
-        skills_mat = np.array(expanded_skills_vecs).T
-        return skills_mat
-
-    def match_skill_diffs(self, skills_vec):
-        signed_skills = skills_vec * self._sign_of_skill_idx
-        skill_diffs = np.sum(
-            signed_skills[self._skills_by_match_order].reshape(self.M, 10),
-            1)
-        return skill_diffs
-
-    def match_loglik(self, skills_vec, radi_adv):
-        """Compute the current log-likelihood of the observed outcomes."""
-        skill_diffs = self.match_skill_diffs(skills_vec)
-        match_win_prob = logistic_win_prob(skill_diffs + radi_adv,
-                                           self.logistic_scale)
-        match_loglik = bernoulli_logpmf(self.radiant_win, match_win_prob)
-        return match_loglik
-
-    def log_posterior(self, skills_vec, radi_adv, inv_sd_mats=None,
-                      abs_log_det=None):
-        """Compute the log-posterior of a skills vector.
-
-        Args:
-            skills_vec (numpy.ndarray): 1D flattened array of skills for each
-                player in each match.
-            radi_adv (float): Radiant advantage.
-            inv_sd_mats (list): A list of matrices A^-1, such that AAt is the
-                covariance matrix of each player. By default calculated from
-                self.cov_mats.
-            abs_log_det (float): The absolute log-determinant of the  (full
-                block diagonal) covariance matrix. By default calculate from
-                self.cov_mats.
-        """
-        if inv_sd_mats is None:
-            inv_sd_mats = \
-                [scipy.linalg.inv(scipy.linalg.cholesky(x, lower=True))
-                 for x in self.cov_mats]
-        if abs_log_det is None:
-            abs_log_dets = [np.linalg.slogdet(x)[1] for x in self.cov_mats]
-            abs_log_det = np.sum(abs_log_dets)
-
-        # Compute the skills prior probabilities.
-        skills_of_player = self.skills_vec_to_skills_by_player(skills_vec)
-        stdnorm_prior_lprobs = []
-        for k in range(self.N):
-            x = inv_sd_mats[k] @ skills_of_player[k]
-            stdnorm_loglik = np.sum(scipy.stats.norm.logpdf(x))
-            stdnorm_prior_lprobs.append(stdnorm_loglik)
-        total_skill_prior_lprob = (np.sum(stdnorm_prior_lprobs)
-                                   - 0.5 * abs_log_det)
-
-        # Compute the prior probability for the Radiant advantage.
-        radi_adv_lprob = scipy.stats.norm.logpdf(radi_adv,
-                                                 scale=self.radi_prior_sd)
-
-        # Compute the match log-likelihoods.
-        match_loglik = self.match_loglik(skills_vec, radi_adv)
-        total_loglik = total_skill_prior_lprob + radi_adv_lprob + match_loglik
-        return total_loglik
-
-    def __init__(self, players_mat, start_times, radiant_win, player_ids,
-                 cov_func_name, cov_func_kwargs=None, radi_prior_sd=1.0,
-                 logistic_scale=0.2):
-        # Some basic sanity checks.
-        assert all(np.nansum(np.abs(players_mat), 1) == 10)
-        assert all(np.nansum(players_mat, 1) == 0)  # 5 a side?
-        assert isinstance(players_mat, pd.DataFrame)
-
-        # Save basic data.
-        self.players_mat = players_mat
-        self.M, self.N = players_mat.shape
-        self.start_times = start_times
-        self.radiant_win = np.where(radiant_win, 1, 0)
-        self.player_ids = player_ids
-        self.radi_prior_sd = radi_prior_sd
-        self.logistic_scale = logistic_scale
-
-        # Pre-compute values.
-        self._games_by_player = self._compute_games_of_players(self.players_mat)
-        self._ngames_by_player = [len(x) for x in self._games_by_player]
-        # Match index corresponding to each skill index.
-        self._match_of_skill_idx = self._match_of_skill_idx()
-        # Side of each element in skill vector.
-        self._sign_of_skill_idx = self._sign_of_skill_idx()
-        # self._skills_by_match_order can be used to reorder a skills or
-        # sign vector by match.
-        self._skills_by_match_order = np.argsort(self._match_of_skill_idx)
-
-        def cov_func(coords):
-            return self.COV_FUNCS[cov_func_name](coords, **cov_func_kwargs)
-        self.cov_mats = [cov_func(self.start_times[played_matches])
-                         for played_matches in self._games_by_player]
+    def _skill_idx_of_player(self):
+        """Compute the index of skills in a skill vector for the k'th player."""
+        idx_offsets = np.cumsum([0] + self._ngames_by_player)
+        return list(zip(idx_offsets[:-1], idx_offsets[1:]))
 
 
 class SkillsGPMAP(SkillsGP):
@@ -454,7 +286,7 @@ class SkillsGPMAP(SkillsGP):
 
         # Compute the match log-likelihood term of the gradient.
         cur_skill_diffs = self.match_skill_diffs(skills) + radi_adv
-        sigma = logistic_win_prob(cur_skill_diffs, self.logistic_scale)
+        sigma = self.win_prob(cur_skill_diffs)
         gradient_coef_of_m = np.where(
             self.radiant_win == 1.0,
             (1 - sigma) / self.logistic_scale,
@@ -487,7 +319,7 @@ class SkillsGPMAP(SkillsGP):
         len(skills) + 1.
         """
         cur_skill_diffs = self.match_skill_diffs(skills) + radi_adv
-        sigma = logistic_win_prob(cur_skill_diffs, self.logistic_scale)
+        sigma = self.win_prob(cur_skill_diffs)
 
         # Compute the prior probability part of the Hessian * p.
         prior_lprob_hessian_p = minus_inv_cov_mat @ p
@@ -531,8 +363,6 @@ class SkillsGPMAP(SkillsGP):
         Returns:
             tuple: A tuple of fitted skills and fitted Radiant advantage.
         """
-        print("Starting...")
-
         # Compute values used by minus_full_loglik() at each iteration.
         inv_sd_mats = [scipy.linalg.inv(scipy.linalg.cholesky(x, lower=True))
                        for x in self.cov_mats]
@@ -563,9 +393,84 @@ class SkillsGPMAP(SkillsGP):
         self.fitted = scipy.optimize.minimize(
             minus_full_loglik, np.zeros(self.M * 10 + 1), method='Newton-CG',
             jac=minus_gradient, hessp=minus_hessp)
+        print(self.fitted)
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+
+
+class GPVec():
+    """
+    Helper class used by SkillsGPMCMC: a container for sampling a Gaussian
+    process using a standard multivariate normal.
+
+    All the data are internally stored in the standard (multivariate normal)
+    space and transformed into the GP space on demand using the covariance
+    matrix S.
+
+    The GP covariance function used is exp(-|d|/s), where d is distance
+    and s is the scaling factor. Rescaling s through s -> s * u is
+    equivalent to exp(-d/(su)) -> exp(-d/s) ** (1/u).
+
+    Args:
+        initial_values (numpy.ndarray): Initial values in the untransformed
+            (standard) Gaussian space.
+        cov_mat (numpy.ndarray): Covariance matrix.
+    """
+    def __init__(self, initial_values, cov_mat):
+        self._validate_args(initial_values, cov_mat)
+        self.state = initial_values.astype(np.longdouble)
+        self.cov_mat = cov_mat
+
+    def transformed(self, state=None):
+        sd_mat = scipy.linalg.cholesky(self.cov_mat, lower=True)
+        if state is None:
+            state = self.state
+        return sd_mat @ state
+
+    def loglik(self, delta=None, cov_func_scale=None):
+        """Compute the current (transformed) log-likelihood."""
+        state = self.state
+        if delta is not None:
+            state = np.add(state, delta)
+        abs_det = np.linalg.slogdet(self.cov_mat)[1]
+        loglik = self._std_normal_logpdf(state) - 0.5 * abs_det
+        return loglik
+
+    def delta_loglik(self, delta):
+        """
+        Difference in log-likelihood based on a delta in the current state.
+
+        The internal state is in standard normal. Therefore, the likelihood
+        difference can be computed in a very straightforward manner.
+        """
+        loglik_diff = -np.sum(delta * (self.state + 0.5 * delta))
+        return loglik_diff
+
+    def _validate_args(self, values, cov_mat):
+        k = len(values)
+        if cov_mat.shape != (k, k):
+            raise ValueError("cov_mat is of the wrong shape.")
+
+    def _std_normal_logpdf(self, x):
+        res = np.sum(scipy.stats.norm.logpdf(x))
+        return res
+
+
+class GPSample:
+    """
+    Helper class used by SkillsGPMCMC: a lightweight container for GP
+    samples.
+    """
+    def __init__(self, iter, skills, radi_adv, log_posterior):
+        self.iter = iter
+        self.skills = skills.astype(np.float64)
+        self.radi_adv = radi_adv
+        self.log_posterior = log_posterior
+
+    def __str__(self):
+        return "[{}] log_posterior: {}, radi_adv: {}, skills: {}".format(
+            self.iter, self.log_posterior, self.radi_adv, self.skills)
 
 
 class SkillsGPMCMC(SkillsGP):
@@ -581,8 +486,8 @@ class SkillsGPMCMC(SkillsGP):
             to be flat.
         save_every_n_iter (int): Save iterations every how many iterations?
             Default: 100.
-        initial_sample (GPSample): Initialisation sample. By default, all
-            values are initialised at 0.0.
+        initial_sample (GPSample): Initialisation sample. By default, all values
+            are initialised at 0.0.
 
     Attributes:
         samples (pandas.Series): A series of GPSample objects.
@@ -590,114 +495,161 @@ class SkillsGPMCMC(SkillsGP):
             internal GP states.
     """
 
-    class GPVec():
-        """
-        A container for sampling a Gaussian process using a standard
-        multivariate normal.
+    def __init__(self, propose_sd=0.2, radi_offset_proposal_sd=0.1,
+                 save_every_n_iter=100, initial_sample=None, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.propose_sd = propose_sd
+        self.radi_offset_proposal_sd = radi_offset_proposal_sd
+        self.save_every_n_iter = save_every_n_iter
+        self.samples = pd.Series([], index=pd.Int64Index([]), dtype=object)
+        self._radi_accept_rate = [0, 0]
+        self._skills_accept_rate = [0, 0]
 
-        All the data are internally stored in the standard (multivariate normal)
-        space and transformed into the GP space on demand using the covariance
-        matrix S.
+        # Populate the helper Gaussian process vector variables:
+        # player_skill_vecs is a self.N long list of GPVec objects for each
+        # respective player.
+        self.player_skill_vecs = []
+        if initial_sample is not None:
+            self._cur_iter = initial_sample.iter
+            self._cur_radi_adv = initial_sample.radi_adv
+            self._cur_log_posterior = initial_sample.log_posterior
+            self._cur_skill_diffs = \
+                (self.match_skill_diffs(initial_sample.skills)
+                 + initial_sample.radi_adv)
+            skill_vec_of_player = \
+                self.skills_vec_to_skills_by_player(initial_sample.skills)
+            inverse_sd_mats = [scipy.linalg.cholesky(x) for x in self.cov_mats]
+            for k in range(self.N):
+                inverse_sd_mat = inverse_sd_mats[k]
+                transformed_skills = skill_vec_of_player[k]
+                untransformed_skills = inverse_sd_mat @ transformed_skills
+                self.player_skill_vecs.append(
+                    GPVec(untransformed_skills, self.cov_mats[k]))
+            self.samples[initial_sample.iter] = copy.deepcopy(initial_sample)
+        else:
+            self._cur_iter = 0
+            self._cur_radi_adv = 0.0
+            initial_skills = np.repeat(0.0, self.M * 10)
+            initial_skills_by_player = \
+                self.skills_vec_to_skills_by_player(initial_skills)
+            self._cur_skill_diffs = \
+                self.match_skill_diffs(initial_skills) + self._cur_radi_adv
+            for k in range(self.N):
+                initial_values = initial_skills_by_player[k]
+                self.player_skill_vecs.append(
+                    GPVec(initial_values, self.cov_mats[k]))
+            self._cur_log_posterior = \
+                self.log_posterior(initial_skills, self._cur_radi_adv)
+            self._save_cur_state()
 
-        The GP covariance function used is exp(-|d|/s), where d is distance
-        and s is the scaling factor. Rescaling s through s -> s * u is
-        equivalent to exp(-d/(su)) -> exp(-d/s) ** (1/u).
+    def radi_win_prob_of_sample(self, sample):
+        """Compute the per-match win probability of a sample."""
+        skill_diffs = self.match_skill_diffs(sample.skills) + sample.radi_adv
+        win_prob = self.win_prob(skill_diffs)
+        return win_prob
+
+    def player_skill_by_sample(self, player, sample_slice=slice(None)):
+        """Return a matrix (iteration * match) of skills.
 
         Args:
-            initial_values (numpy.ndarray): Initial values in the standard
-                space.
-            cov_mat (numpy.ndarray): Covariance matrix.
+            player (int or str): The player ID or name of interest.
+            sample_slice (slice): A slice for slicing iterations.
         """
-        def _validate_args(self, values, cov_mat):
-            k = len(values)
-            if cov_mat.shape != (k, k):
-                raise ValueError("cov_mat is of the wrong shape.")
+        if isinstance(player, int):
+            player_idx = np.where(self.player_ids.index == player)[0]
+        elif isinstance(player, str):
+            player_idx = np.where(self.player_ids == player)[0]
+        if len(player_idx) != 1:
+            raise ValueError(f"Found {len(player_idx)} matches for {player}.")
+        else:
+            player_idx = player_idx[0]
+        start, end = self._skill_idx_of_player[player_idx]
+        skill_by_match_mat = np.array([s.skills[start:end]
+                                       for s in self.samples[sample_slice]])
+        iters = pd.Series([s.iter for s in self.samples[sample_slice]],
+                          name='iter')
+        skills_by_match_df = pd.DataFrame(
+            skill_by_match_mat, index=iters,
+            columns=self.players_mat.index[self._games_by_player[player_idx]])
+        return skills_by_match_df
 
-        def __init__(self, initial_values, cov_mat):
-            self._validate_args(initial_values, cov_mat)
-            self.state = initial_values.astype(np.longdouble)
-            self.cov_mat = cov_mat
-            self.cov_func_scale = 1.0
+    def team_skill_by_sample(self, side="radiant", sample_slice=slice(None)):
+        """
+        Return a matrix of (iteration * match) of total skills of a team
+        (either Radiant or Dire).
+        """
+        team_skill_mat = np.array(
+            [self.match_team_skills(sample.skills, side)
+             for sample in self.samples[sample_slice]])
+        iters = pd.Series([s.iter for s in self.samples[sample_slice]],
+                          name='iter')
+        team_skill_df = pd.DataFrame(team_skill_mat, index=iters,
+                                     columns=self.players_mat.index)
+        return team_skill_df
 
-        def transformed(self, state=None, cov_func_scale=None):
-            cov_mat = self.cov_mat
-            if cov_func_scale is not None:
-                cov_mat = cov_mat ** (1 / cov_func_scale)
-            sd_mat = scipy.linalg.cholesky(cov_mat, lower=True)
-            if state is None:
-                state = self.state
-            return sd_mat @ state
+    def radi_adv_by_sample(self, sample_slice=slice(None)):
+        """Return a series of Radiant advantages by iteration."""
+        samples = self.samples[sample_slice]
+        radi_advs = [s.radi_adv for s in samples]
+        iters = [s.iter for s in samples]
+        return pd.Series(radi_advs, index=pd.Index(iters, name="iter"))
 
-        def _std_normal_logpdf(self, x):
-            res = np.sum(scipy.stats.norm.logpdf(x))
-            return res
+    def radi_win_prob_by_sample(self, sample_slice=slice(None)):
+        """Return a matrix (iteration * match) of Radiant win probabilities."""
+        win_prob_mat = np.array([self.radi_win_prob_of_sample(sample)
+                                 for sample in self.samples[sample_slice]])
+        iters = pd.Series([s.iter for s in self.samples[sample_slice]],
+                          name="iter")
+        win_prob_df = pd.DataFrame(win_prob_mat, index=iters,
+                                   columns=self.players_mat.index)
+        return win_prob_df
 
-        def loglik(self, delta=None, cov_func_scale=None):
-            """Compute the current (transformed) log-likelihood."""
-            state = self.state
-            if delta is not None:
-                state = np.add(state, delta)
-            cov_mat = self.cov_mat
-            if cov_func_scale is not None:
-                cov_mat = np.power(cov_mat, (1 / cov_func_scale))
-            abs_det = np.linalg.slogdet(cov_mat)[1]
-            loglik = self._std_normal_logpdf(state) - 0.5 * abs_det
-            return loglik
+    def iterate(self, n=1):
+        """Iterate n times."""
 
-        def delta_loglik(self, delta):
-            """
-            Difference in log-likelihood based on a delta in the current state.
+        for i in progressbar.progressbar(range(n)):
+            # Update radiant advantage parameter.
+            self.iterate_radiant_advantage()
 
-            The internal state is in standard normal. Therefore, the likelihood
-            difference can be computed in a very straightforward manner.
-            """
-            loglik_diff = -np.sum(delta * (self.state + 0.5 * delta))
-            return loglik_diff
+            # Update skill parameters.
+            self.iterate_once_player_wise()
 
-    def _save_cur_state(self):
-        """Save the current state as a sample."""
-        assert self._cur_iter not in self.samples
-        skills_by_player = [x[0].transformed() for x in self.player_skill_vecs]
-        sample = GPSample(self._cur_iter, np.concatenate(skills_by_player),
-                          self._cur_radi_adv, self._cur_log_posterior)
-        self.samples[iter] = sample
+            # Increase iteration count. Save current sample?
+            self._cur_iter += 1
+            if self._cur_iter % self.save_every_n_iter == 0:
+                self._save_cur_state()
 
-    def prior_log_prob(self, cov_func_scale=None):
-        """Total prior log-probability of the current states."""
-        log_probs = [x[0].loglik(cov_func_scale=cov_func_scale)
-                     for x in self.player_skill_vecs]
-        return log_probs
-
-    def log_posterior(self, skills_vec, radiant_adv, cov_func_scale=None):
-        """Compute the log posterior probability of the skills vector."""
-        prior_logprob = self.prior_log_prob(cov_func_scale)
-        radi_adv_prior_lprob = scipy.stats.norm.logpdf(
-            radiant_adv, scale=self.radi_prior_sd)
-        skills_mat = self.cur_skills_mat()
-        match_loglik = self.match_loglik(skills_mat, radiant_adv)
-        log_posterior = (radi_adv_prior_lprob + np.sum(prior_logprob)
-                         + np.sum(match_loglik))
-        return log_posterior
+        # Check the integrity of the running sums.
+        cur_skills_vec = self._cur_skills_vec()
+        manually_computed_skill_diffs = \
+            self.match_skill_diffs(cur_skills_vec) + self._cur_radi_adv
+        manually_computed_log_posterior = \
+            self.log_posterior(cur_skills_vec, self._cur_radi_adv)
+        if not np.allclose(manually_computed_skill_diffs,
+                           self._cur_skill_diffs):
+            warnings.warn("Loss of integrity with self._cur_skill_diffs")
+        if not np.isclose(manually_computed_log_posterior,
+                          self._cur_log_posterior):
+            warnings.warn("Loss of integrity with self._cur_log_posterior")
 
     def iterate_radiant_advantage(self):
         """Perform a Metropolis iteration on the Radiant advantage.
 
-        Returns the (potentially) updated value as opposed to modifying
-        `self` directly.
+        Returns the (potentially) updated value as opposed to modifying `self`
+        directly.
         """
         old_radi_prior_lprob = scipy.stats.norm.logpdf(
             self._cur_radi_adv, scale=self.radi_prior_sd)
-        old_win_prob = win_prob(self._cur_skill_diffs, self.logistic_scale)
-        old_match_loglik = np.sum(bernoulli_logpmf(
-            self.radiant_win, old_win_prob))
+        old_win_prob = self.win_prob(self._cur_skill_diffs)
+        old_match_loglik = np.sum(
+            bernoulli_logpmf(self.radiant_win, old_win_prob))
 
         radi_adv_delta = np.random.normal(scale=self.radi_offset_proposal_sd)
         new_radi_prior_lprob = scipy.stats.norm.logpdf(
             self._cur_radi_adv + radi_adv_delta, scale=self.radi_prior_sd)
-        new_win_prob = win_prob(
-            self._cur_skill_diffs + radi_adv_delta, self.logistic_scale)
-        new_match_loglik = np.sum(bernoulli_logpmf(
-            self.radiant_win, new_win_prob))
+        new_win_prob = self.win_prob(self._cur_skill_diffs + radi_adv_delta)
+        new_match_loglik = np.sum(
+            bernoulli_logpmf(self.radiant_win, new_win_prob))
         log_bayes_factor = (new_radi_prior_lprob - old_radi_prior_lprob
                             + new_match_loglik - old_match_loglik)
         if np.log(np.random.uniform()) < log_bayes_factor:
@@ -710,8 +662,8 @@ class SkillsGPMCMC(SkillsGP):
     def iterate_once_player_wise(self):
         """Perform a block-wise iteration across all players."""
         for i in range(self.N):
-            player_skills_gp = self.player_skill_vecs[i][0]
-            match_idx = self.player_skill_vecs[i][1]
+            player_skills_gp = self.player_skill_vecs[i]
+            match_idx = self._games_by_player[i]
             skills_delta = np.random.normal(scale=self.propose_sd,
                                             size=len(match_idx))
 
@@ -721,7 +673,7 @@ class SkillsGPMCMC(SkillsGP):
             # Compute the match likelihood portion: old match likelihood.
             old_skill_diffs = self._cur_skill_diffs[match_idx]
             radiant_win = self.radiant_win[match_idx]
-            old_win_prob = win_prob(old_skill_diffs, self.logistic_scale)
+            old_win_prob = self.win_prob(old_skill_diffs)
             old_loglik = bernoulli_logpmf(radiant_win, old_win_prob)
 
             # Compute the match likelihood portion: new match likelihood.
@@ -729,7 +681,7 @@ class SkillsGPMCMC(SkillsGP):
                 (self.players_mat.values[match_idx, i]
                  * player_skills_gp.transformed(skills_delta))
             new_skill_diffs = old_skill_diffs + skill_diffs_delta
-            new_win_prob = win_prob(new_skill_diffs, self.logistic_scale)
+            new_win_prob = self.win_prob(new_skill_diffs)
             new_loglik = bernoulli_logpmf(radiant_win, new_win_prob)
 
             # Transition in-place?
@@ -742,81 +694,14 @@ class SkillsGPMCMC(SkillsGP):
                 self._skills_accept_rate[0] += 1
             self._skills_accept_rate[1] += 1
 
-    def iterate(self, n=1, method="playerwise"):
-        """Iterate n times."""
+    def _cur_skills_vec(self):
+        """Concatenate the skills vectors for each GPVec object."""
+        return np.concatenate([x.transformed() for x in self.player_skill_vecs])
 
-        for i in progressbar.progressbar(range(n)):
-            # Update radiant advantage parameter.
-            self.iterate_radiant_advantage()
-
-            # Update skill parameters.
-            if method == "playerwise":
-                self.iterate_once_player_wise()
-            else:
-                raise ValueError(f"Iteration method '{method}' not recognised.")
-
-            # Increase iteration count. Save current sample?
-            self._cur_iter += 1
-            if self._cur_iter % self.save_every_n_iter == 0:
-                self._save_cur_state()
-
-        # Check the integrity of the running sums.
-        if not np.allclose(
-                (np.nansum(self.players_mat * self.cur_skills_mat(), 1)
-                 + self._cur_radi_adv),
-                self._cur_skill_diffs):
-            warnings.warn("Loss of integrity with self._cur_skill_diffs")
-        if not np.isclose(self.cur_log_posterior(self._cur_radi_adv),
-                          self._cur_log_posterior):
-            warnings.warn("Loss of integrity with self._cur_log_posterior")
-
-    def __init__(self, propose_sd=0.2, radi_offset_proposal_sd=0.1,
-                 save_every_n_iter=100, initial_sample=None, *args, **kwargs):
-        super().__init__(self, *args, **kwargs)
-        self.propose_sd = propose_sd
-        self.radi_offset_proposal_sd = radi_offset_proposal_sd
-        self.save_every_n_iter = save_every_n_iter
-        self.samples = pd.Series([], index=pd.Int64Index([]), dtype=object)
-        self._radi_accept_rate = [0, 0]
-        self._skills_accept_rate = [0, 0]
-
-        self.player_skill_vecs = []
-        if initial_sample is not None:
-            self._cur_iter = initial_sample.iter
-            self._cur_radi_adv = initial_sample.radi_adv
-            self._cur_log_posterior = initial_sample.log_posterior
-            for k in range(self.N):
-                played_matches = self.samples.games_by_player[k]
-                cov_mat = _dist_to_cov_mat(cov_func,
-                                           self.start_times[played_matches])
-                inverse_sd_mat = scipy.linalg.inv(
-                    scipy.linalg.cholesky(cov_mat, lower=True))
-                transformed_skills = self.samples.skills_vec_of_kth_player(
-                    initial_sample, k)
-                untransformed_skills = inverse_sd_mat @ transformed_skills
-                self.player_skill_vecs.append(
-                    (GPVec(untransformed_skills, cov_mat),
-                     played_matches))
-            self._cur_skill_diffs = np.nansum(
-                (self.samples._skills_vec_to_mat(initial_sample.skills)
-                 * self.players_mat),
-                1)
-            self._cur_skill_diffs += initial_sample.radi_adv
-            self.samples.samples[initial_sample.iter] = \
-                copy.deepcopy(initial_sample)
-        else:
-            self._cur_iter = 0
-            self._cur_radi_adv = 0.0
-            for k in range(self.N):
-                played_matches = \
-                    np.arange(self.M)[self.players_mat.values[:, k] != 0.0]
-                initial_values = np.repeat(0.0, len(played_matches))
-                cov_mat = _dist_to_cov_mat(
-                    cov_func, self.start_times[played_matches])
-                self.player_skill_vecs.append((GPVec(initial_values, cov_mat),
-                                               played_matches))
-            self._cur_skill_diffs = \
-                (np.nansum(self.players_mat * self.cur_skills_mat(), 1)
-                 + self._cur_radi_adv)
-            self._cur_log_posterior = self.cur_log_posterior(self._cur_radi_adv)
-            self._save_cur_state()
+    def _save_cur_state(self):
+        """Save the current state as a sample."""
+        assert self._cur_iter not in self.samples
+        skills_by_player = [x.transformed() for x in self.player_skill_vecs]
+        sample = GPSample(self._cur_iter, np.concatenate(skills_by_player),
+                          self._cur_radi_adv, self._cur_log_posterior)
+        self.samples[self._cur_iter] = sample
