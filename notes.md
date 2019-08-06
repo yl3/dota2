@@ -1,5 +1,54 @@
 # Notes
 
+## 2019-08-06
+
+The conditional probability of a multivariate normal is provided in Wikipedia [here](https://en.wikipedia.org/wiki/Multivariate_normal_distribution#Conditional_distributions).
+
+For reference, the fitting results of all but the *last* (oldest) match in the TI9 qualifiers match dataset is the following.
+
+         fun: -7222.4671618023995
+         jac: array([-1.00780705e-05, -2.35187119e-06,  1.31262516e-05, ...,
+           -1.39675435e-05,  4.02921851e-06,  1.40821844e-05])
+     message: 'Optimization terminated successfully.'
+        nfev: 15
+        nhev: 2279
+         nit: 14
+        njev: 28
+      status: 0
+     success: True
+           x: array([-0.2865158 , -0.28647442, -0.28642566, ..., -0.16772377,
+           -0.16776032, -0.09798433])
+
+The fitting results for the TI9 qualifiers results but the *first* (newest) match is the following.
+
+         fun: -7215.896591841696
+         jac: array([-4.42373891e-06,  2.27665835e-06, -6.43913576e-06, ...,
+            2.74491658e-06, -6.37987750e-06,  2.63498046e-05])
+     message: 'Optimization terminated successfully.'
+        nfev: 21
+        nhev: 2561
+         nit: 18
+        njev: 38
+      status: 0
+     success: True
+           x: array([-0.2846862 , -0.28505657, -0.28517459, ..., -0.16446207,
+           -0.16434913, -0.07946344])
+
+After incrementally fitting the first (newest) match, we get the following fitting results. The fitting took **600 ms**.
+
+         fun: -7251.013162612773
+         jac: array([ 6.18084507e-06, -8.36016304e-06, -5.12338929e-06, ...,
+           -8.23186910e-06, -2.32293850e-06, -5.05975558e-05])
+     message: 'Optimization terminated successfully.'
+        nfev: 9
+        nhev: 1163
+         nit: 8
+        njev: 16
+      status: 0
+     success: True
+           x: array([-0.28478576, -0.28515596, -0.28527381, ..., -0.16480323,
+           -0.16469046, -0.08426584])
+
 ## 2019-08-04
 
 After refactoring the Newton-CG fitting code, the fitted results (approximately) match with the old code's results.
@@ -117,6 +166,12 @@ By avoiding the `scipy.stats.multivariate_normal.logpdf()` call, we are shaving 
     577     18525      13341.0      0.7      0.3                  abs_det = abs_log_dets[k]
     578     18525    3183719.0    171.9     64.1                  temp = np.sum(scipy.stats.norm.logpdf(x)) - 0.5 * abs_det
     579     18525      22310.0      1.2      0.4                  skill_prior_lprobs.append(temp)
+
+### Incremental Newton-CG fitting
+
+If only one value needs to be updated, we can impute the skills of the new game (based on already fitted player skills) and refit the entire skills vector from this starting point.
+
+In the full dataset, this incremental fitting of one more match's skills took 56 seconds, about a third of the full fit (3 minutes on the notebook). Whereas the full fit required 15 iterations and 16,031 Hessian evaluations, the incremental fit required only 4 iterations and 5,198 Hessian evaluations.
 
 ## 2019-07-31
 

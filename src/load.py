@@ -2,6 +2,7 @@
 
 
 import json
+import numpy as np
 import pandas as pd
 
 
@@ -41,4 +42,10 @@ def all_matches_df():
     matches_df['startTimestamp'] = matches_df['startDate'].values
     matches_df['startDate'] = pd.to_datetime(matches_df.startDate, unit='ms')
     matches_df.set_index("matchId", inplace=True)
+    col_names = ['startDate', 'league_name', 'radiant_name', 'dire_name',
+                 'radiantVictory', 'radiant_nicknames', 'dire_nicknames']
+    cols = np.concatenate(
+        [col_names, matches_df.columns[~matches_df.columns.isin(col_names)]])
+    matches_df = matches_df.loc[:, cols]
+    matches_df.sort_values('startDate', inplace=True)
     return matches_df
