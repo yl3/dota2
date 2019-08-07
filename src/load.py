@@ -34,9 +34,8 @@ def _flatten_match_json(json_entry):
     return out_dict
 
 
-def all_matches_df():
-    """Load a Pandas DataFrame of all matches."""
-    matches_json = all_matches_json()
+def matches_json_to_df(matches_json):
+    """Convert a matches JSON format into a Pandas data frame."""
     matches_df = pd.DataFrame([_flatten_match_json(x) for x in matches_json])
     matches_df['seriesId'] = matches_df['seriesId'].astype(pd.Int64Dtype())
     matches_df['startTimestamp'] = matches_df['startDate'].values
@@ -49,3 +48,9 @@ def all_matches_df():
     matches_df = matches_df.loc[:, cols]
     matches_df.sort_values('startDate', inplace=True)
     return matches_df
+
+
+def all_matches_df():
+    """Load a Pandas DataFrame of all matches."""
+    matches_json = all_matches_json()
+    return matches_json_to_df(matches_json)

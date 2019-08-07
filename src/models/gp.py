@@ -19,7 +19,7 @@ def bernoulli_logpmf(y, p):
     return loglik
 
 
-def exp_cov_mat(x1, scale, x2=None):
+def exp_cov_mat(x1, scale, x2=None, alpha=1e-6):
     """Exponential (Ornstein-Uhlenbeck) distance covariance matrix.
 
     At a distance |x_i - x_j| of 1 * scale, the correlation between the two
@@ -27,23 +27,32 @@ def exp_cov_mat(x1, scale, x2=None):
     are around 0.8 and 0.6, respectively
     (see Fig. 4.1 in http://www.gaussianprocess.org/gpml/chapters/RW4.pdf).
 
-    A good scale is could be 2 years.
+    Alpha is the value added to the diagonal of the kernel matrix during
+    fitting.
     """
     if x2 is None:
         x2 = x1
     cov_mat = scipy.spatial.distance.cdist(
-        x1.reshape(-1, 1), x2.reshape(-1, 1), 'minkowski', p=1.0)
+        x1.astype(np.longdouble).reshape(-1, 1),
+        x2.astype(np.longdouble).reshape(-1, 1),
+        'minkowski',
+        p=1.0)
     cov_mat = np.exp(-cov_mat / scale)
+    np.fill_diagonal(cov_mat, np.diagonal(cov_mat) + alpha)
     return cov_mat
 
 
-def gp_predict(x_known, y_known, x_new, cov_func):
+def gp_predict(x_known, y_known, x_new, cov_func, alpha=1e-6):
     """Predict new values in a GP given observed values.
 
     Notation used is that of
     https://en.wikipedia.org/wiki/Multivariate_normal_distribution#Conditional_distributions
+
+    Alpha is the value added to the diagonal of the kernel matrix during
+    fitting.
     """
     sigma = cov_func(np.append(x_new, x_known))
+    np.fill_diagonal(sigma, np.diagonal(sigma) + alpha)
     sigma_11 = sigma[:len(x_new), :len(x_new)]
     sigma_12 = sigma[:len(x_new), len(x_new):]
     sigma_21 = sigma[len(x_new):, :len(x_new)]
@@ -51,6 +60,9 @@ def gp_predict(x_known, y_known, x_new, cov_func):
     sigma_22_inv = scipy.linalg.inv(sigma_22)
     x_new_mu = sigma_12 @ sigma_22_inv @ y_known
     x_new_sigma = sigma_11 - sigma_12 @ sigma_22_inv @ sigma_21
+    if any(x_new_sigma < 0.0):
+        assert np.allclose(x_new_sigma[x_new_sigma < 0], 0.0)
+        x_new_sigma = np.maximum(x_new_sigma, 0.0)
     return x_new_mu, x_new_sigma
 
 
@@ -252,9 +264,12 @@ class SkillsGP:
         return skills_df
 
     def _compute_games_of_players(self, players_mat):
-        """Return a list of indices for matches in which each player played."""
+        """
+        Return a series of indices for matches in which each player played.
+        """
         res = [np.where(players_mat.iloc[:, k] != 0)[0] for k in range(self.N)]
-        return res
+        games_of_players = pd.Series(res, index=players_mat.columns)
+        return games_of_players
 
     def _expand_sparse_player_vec(self, arr, idx):
         """Expand an array of values, arr, into a self.M long array."""
@@ -294,8 +309,11 @@ class SkillsGP:
     def _skill_slice_of_player(self):
         """Compute the index of skills in a skill vector for the k'th player."""
         idx_offsets = np.cumsum([0] + self._ngames_by_player)
-        return [slice(start, end)
-                for start, end in zip(idx_offsets[:-1], idx_offsets[1:])]
+        skill_slice_of_player = pd.Series(
+            [slice(start, end)
+             for start, end in zip(idx_offsets[:-1], idx_offsets[1:])],
+            index=self.players_mat.columns)
+        return skill_slice_of_player
 
 
 class SkillsGPMAP(SkillsGP):
@@ -319,13 +337,14 @@ class SkillsGPMAP(SkillsGP):
             self._initial_radi_adv = 0.0
         self.fitted = None
 
-    def fit(self, initial_skills=None, initial_radi_adv=0.0):
+    def fit(self, initial_skills=None, initial_radi_adv=0.0, print_fit=False):
         """Perform a Newton-Raphson fit of the model.
 
         Args:
             initial_skills (numpy.ndarray): A 1D array of skills of each player
                 in each match. Default: every player's skills start from 0.0.
             initial_radi_adv (float): Initial Radiant advantage.
+            print_fit (bool): Whether to print the fitted results.
 
         Returns:
             tuple: A tuple of fitted skills and fitted Radiant advantage.
@@ -361,7 +380,9 @@ class SkillsGPMAP(SkillsGP):
         self.fitted = scipy.optimize.minimize(
             minus_full_loglik, initial_values, method='Newton-CG',
             jac=minus_gradient, hessp=minus_hessp)
-        print(self.fitted)
+
+        if print_fit:
+            print(self.fitted)
 
     def predict(self, new_times, player_ids, as_df=True):
         """Predict skills at a new timepoint.
@@ -386,10 +407,9 @@ class SkillsGPMAP(SkillsGP):
         cov_of_player = []
         for player_id in player_ids:
             if player_id in self.players_mat.columns:
-                idx = np.where(self.players_mat.columns == player_id)[0][0]
-                games_idx = self._games_by_player[idx]
+                games_idx = self._games_by_player[player_id]
                 x_train = self.start_times[games_idx]
-                y_train = self.fitted.x[self._skill_slice_of_player[idx]]
+                y_train = self.fitted.x[self._skill_slice_of_player[player_id]]
                 x_pred = new_times
                 mu, cov_mat = gp_predict(x_train, y_train, x_pred,
                                          self.cov_func)
@@ -397,7 +417,7 @@ class SkillsGPMAP(SkillsGP):
                 cov_of_player.append(np.diagonal(cov_mat))
             else:
                 # Just use the hard-coded prior.
-                mu_of_player.append(0.0)
+                mu_of_player.append([0.0])
                 cov_of_player.append([1.0])
         pred_mat = np.array(mu_of_player).T
         var_mat = np.array(cov_of_player).T
@@ -468,9 +488,8 @@ class SkillsGPMAP(SkillsGP):
                 # code default.
                 imputed_skills_of_player.append(0.0)
             else:
-                idx = np.where(player_id == self.players_mat.columns)[0][0]
                 imputed_skills_of_player.append(
-                    self.fitted.x[self._skill_slice_of_player[idx]][-1])
+                    self.fitted.x[self._skill_slice_of_player[player_id]][-1])
         imputed_skills_of_player = \
             np.array(imputed_skills_of_player).reshape(1, -1)
 
@@ -742,19 +761,16 @@ class SkillsGPMCMC(SkillsGP):
             player (int): The player ID of interest.
             sample_slice (slice): A slice for slicing iterations.
         """
-        player_idx = np.where(self.players_mat.columns == player)[0]
-        if len(player_idx) != 1:
-            raise ValueError(f"Found {len(player_idx)} matches for {player}.")
-        else:
-            player_idx = player_idx[0]
-        skills_slice = self._skill_slice_of_player[player_idx]
+        if player not in self.players_mat.columns:
+            raise ValueError(f"No match for player ID {player}.")
+        skills_slice = self._skill_slice_of_player[player]
         skill_by_match_mat = np.array([s.skills[skills_slice]
                                        for s in self.samples[sample_slice]])
         iters = pd.Series([s.iter for s in self.samples[sample_slice]],
                           name='iter')
         skills_by_match_df = pd.DataFrame(
             skill_by_match_mat, index=iters,
-            columns=self.players_mat.index[self._games_by_player[player_idx]])
+            columns=self.players_mat.index[self._games_by_player[player]])
         return skills_by_match_df
 
     def team_skill_by_sample(self, side="radiant", sample_slice=slice(None)):
@@ -847,7 +863,7 @@ class SkillsGPMCMC(SkillsGP):
         """Perform a block-wise iteration across all players."""
         for i in range(self.N):
             player_skills_gp = self.player_skill_vecs[i]
-            match_idx = self._games_by_player[i]
+            match_idx = self._games_by_player.iloc[i]
             skills_delta = np.random.normal(scale=self.propose_sd,
                                             size=len(match_idx))
 
