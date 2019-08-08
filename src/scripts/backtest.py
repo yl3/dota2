@@ -49,8 +49,44 @@ def load_matches(json_file):
     return matches
 
 
+def _order_matches_by_series(matches):
+    """Order a matches data frame by when the match or series started.
+
+    A matches data frame is created using load_matches().
+    """
+    start_time_of_series = pd.Series(matches.seriesId.values,
+                                     index=matches.startTimestamp,
+                                     name='series_id').dropna()
+    start_time_of_series = (start_time_of_series
+                            .reset_index()
+                            .groupby('series_id')
+                            .aggregate({'startTimestamp': min})
+                            .squeeze())
+    # By default, use the match start times, but fill in the series start times
+    # if available.
+    match_series_start_time = pd.Series(matches.startTimestamp.values,
+                                        index=matches.seriesId,
+                                        name='startTimestamp')
+    idx = match_series_start_time.index.isin(start_time_of_series.index)
+    match_series_start_time.loc[idx] = start_time_of_series[
+        match_series_start_time.loc[idx].index]
+    matches = matches.assign(series_start_time=match_series_start_time.values)
+    matches.sort_values('series_start_time', inplace=True)
+    return matches
+
+
+def _cur_time():
+    return datetime.datetime.now()
+
+
 def iterative_newton_fitter(matches, args):
-    """Iterative Newton-CG fitter."""
+    """Iterative Newton-CG fitter.
+
+    Matches are fitted in chunks based on the start time of the `series`.
+    """
+    # Order by series start time.
+    matches = _order_matches_by_series(matches)
+
     # Fit the initial model.
     initial_matches = matches.iloc[:args.training_matches]
     initial_matches_players_mat = munge.make_match_players_matrix(
@@ -65,45 +101,52 @@ def iterative_newton_fitter(matches, args):
         {"scale": args.scale},
         args.radi_prior_sd,
         args.logistic_scale)
-
-    def time():
-        return str(datetime.datetime.now())
     sys.stderr.write(
-        f"[{time()}] Fitting the {args.training_matches} matches.\n")
+        f"[{_cur_time()}] Fitting the {args.training_matches} matches.\n")
     gp_model.fit()
 
     # Iteratively predict and refit the model.
+    test_matches = matches.iloc[args.training_matches:]
+    test_match_groups = test_matches.groupby('series_start_time')
     predictions = []
-    # for k in progressbar.progressbar(range(args.test_matches)):
-    for k in range(args.test_matches):
-        k = args.training_matches + k
-        sys.stderr.write(f"[{time()}] Fitting iteration {k}...\n")
-        new_match = matches.iloc[[k]]
+    matches_fitted = 0
+    for name, match_grp in test_match_groups:
+        msg = (f"[{_cur_time()}] So far predicted: {matches_fitted} matches. "
+               f"Predicting matches {list(match_grp.index)} "
+               f"(series {list(match_grp.seriesId.unique())})...\n")
+        sys.stderr.write(msg)
 
         # Add prediction of this new match.
         try:
-            predictions.append(gp_model.predict_matches(
-                new_match.radiant_players, new_match.dire_players,
-                new_match.startTimestamp))
+            predicted = gp_model.predict_matches(match_grp.radiant_players,
+                                                 match_grp.dire_players,
+                                                 match_grp.startTimestamp)
+            predicted.reset_index(inplace=True)
+            predicted.index = match_grp.index
+            predictions.append(predicted)
         except Exception as e:
             sys.stderr.write(
-                f"Encountered error while predicting at iteration {k}: \n")
-            sys.stderr.write(new_match.to_string())
+                f"Encountered error after {matches_fitted} predicted: \n")
+            sys.stderr.write(match_grp.to_string())
             raise e
 
         # Refit with this new match.
         try:
             new_players_mat = munge.make_match_players_matrix(
-                new_match.radiant_players, new_match.dire_players)
+                match_grp.radiant_players, match_grp.dire_players)
             gp_model = gp_model.add_matches(new_players_mat,
-                                            new_match.startTimestamp,
-                                            new_match.radiantVictory)
+                                            match_grp.startTimestamp,
+                                            match_grp.radiantVictory)
             gp_model.fit()
         except Exception as e:
             sys.stderr.write(
-                f"Encountered error while refitting at iteration {k}: \n")
-            sys.stderr.write(new_match.to_string())
+                f"Encountered error after {matches_fitted} predicted: \n")
+            sys.stderr.write(match_grp.to_string())
             raise e
+
+        matches_fitted += match_grp.shape[0]
+        if matches_fitted >= args.test_matches:
+            break
     return pd.concat(predictions)
 
 
