@@ -2,6 +2,7 @@
 
 
 import argparse
+import datetime
 import json
 import os
 import pandas as pd
@@ -64,13 +65,19 @@ def iterative_newton_fitter(matches, args):
         {"scale": args.scale},
         args.radi_prior_sd,
         args.logistic_scale)
-    sys.stderr.write(f"Fitting the {args.training_matches} matches.\n")
+
+    def time():
+        return str(datetime.datetime.now())
+    sys.stderr.write(
+        f"[{time()}] Fitting the {args.training_matches} matches.\n")
     gp_model.fit()
 
     # Iteratively predict and refit the model.
     predictions = []
-    for k in progressbar.progressbar(range(args.test_matches)):
+    # for k in progressbar.progressbar(range(args.test_matches)):
+    for k in range(args.test_matches):
         k = args.training_matches + k
+        sys.stderr.write(f"[{time()}] Fitting iteration {k}...\n")
         new_match = matches.iloc[[k]]
 
         # Add prediction of this new match.
