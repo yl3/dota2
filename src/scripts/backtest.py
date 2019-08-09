@@ -6,7 +6,6 @@ import datetime
 import json
 import os
 import pandas as pd
-import progressbar
 import sys
 
 sys.path.insert(0, os.path.abspath("."))
@@ -23,7 +22,7 @@ def parse_args():
     parser.add_argument("matches_json", help="A JSON of matches.")
     parser.add_argument("method", help="Fitting method. Currently supported: "
                                        "{'newton'}")
-    parser.add_argument("output", help="Output file for predictions.")
+    parser.add_argument("output_prefix", help="Output prefix for predictions.")
     help = "Number of initial matches to use as initial training data."
     parser.add_argument("training_matches", help=help, type=int)
     help = "Number of matches after the training matches to use for prediction."
@@ -109,6 +108,8 @@ def iterative_newton_fitter(matches, args):
     test_matches = matches.iloc[args.training_matches:]
     test_match_groups = test_matches.groupby('series_start_time')
     predictions = []
+    mu_mats = []
+    var_mats = []
     matches_fitted = 0
     for name, match_grp in test_match_groups:
         msg = (f"[{_cur_time()}] So far predicted: {matches_fitted} matches. "
@@ -118,11 +119,14 @@ def iterative_newton_fitter(matches, args):
 
         # Add prediction of this new match.
         try:
-            predicted = gp_model.predict_matches(match_grp.radiant_players,
-                                                 match_grp.dire_players,
-                                                 match_grp.startTimestamp)
+            predicted, mu_mat, var_mat = gp_model.predict_matches(
+                match_grp.radiant_players,
+                match_grp.dire_players,
+                match_grp.startTimestamp)
             predicted.reset_index(inplace=True)
             predicted.index = match_grp.index
+            mu_mats.append(mu_mat)
+            var_mats.append(var_mat)
             predictions.append(predicted)
         except Exception as e:
             sys.stderr.write(
@@ -147,15 +151,20 @@ def iterative_newton_fitter(matches, args):
         matches_fitted += match_grp.shape[0]
         if matches_fitted >= args.test_matches:
             break
-    return pd.concat(predictions)
+    predictions_df = pd.concat(predictions)
+    mu_df = pd.concat(mu_mats)
+    var_df = pd.concat(var_mats)
+    return predictions_df, mu_df, var_df
 
 
 def main():
     args = parse_args()
     matches = load_matches(args.matches_json)
     if args.method == 'newton':
-        predictions = iterative_newton_fitter(matches, args)
-        predictions.to_csv(args.output, sep="\t")
+        predictions, mu_df, var_df = iterative_newton_fitter(matches, args)
+        predictions.to_csv(args.output_prefix + ".win_probs", sep="\t")
+        mu_df.to_csv(args.output_prefix + ".player_skills", sep="\t")
+        var_df.to_csv(args.output_prefix + ".player_skill_vars", sep="\t")
 
 
 if __name__ == "__main__":

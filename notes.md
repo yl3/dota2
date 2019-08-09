@@ -1,5 +1,55 @@
 # Notes
 
+## 2019-08-09
+
+TODO:
+
+- Iterative fitting in chunks of series.
+- Return matrices of per-player skills and standard deviations.
+- Profiling of the iterative fitting code (from match 4,500 onwards).
+
+## 2018-08-08
+
+Next thing to do is to decide what hyperparameter values to use. The hyperparameters in question are:
+
+* `radi_prior_sd` - the standard deviation of the prior Gaussian distribution for Radiant advantage.
+* `logistic_scale` - the scaling factor $l$ for the logistic regression formula $1 / (1 + \exp(-d / l))$.
+* `scale` - the time scale for the covariance function.
+
+### `scale`
+
+How much should skills be autocorrelated? This can be ultimately estimated from the data.
+
+The formula is $\exp(-|d|/s) = \sigma^2 \leftrightarrow s = -|d|/\log \sigma^2$.
+
+| Distance in years | $\mathbf{E}[\text{autocorrelation}]$ | $\mathbf{E}[\text{covariance}]$ | Imputed `scale` |
+|:-------------:|:-------------:| -----:|---|
+| 0.25 | 0.9-0.95 | 0.81-0.90 | 1.19-2.37 |
+| 0.5  | ~0.8 | ~0.64 | ~1.12 |
+| 1    | ~0.7 | ~0.49 | ~1.40 |
+
+**Thus, somewhere around 1-1.5 seems like a good choice for the `scale` parameter.**
+
+### `logistic_scale`
+
+The GP prior standard deviation is assumed to be 1. We want to set `logistic_scale` $s$ such that we get the following expected win rates.
+
+The formula is $1 / (1 + \exp(-d / s)) = p \leftrightarrow s = -d / \log ((1-p)/p)$.
+
+| Team skill | Win rate compared with an average team | Estimated scale |
+|:---------|:---|:---|
+| 10 (five players each 2 sds above the mean) | 19/20 | 3.40 |
+| 10 (five players each 2 sds above the mean) | 24/25 | 3.11 |
+| 5 (five players each 1 sd above the mean) | 4/5 | 3.11 |
+| 5 (five players each 1 sd above the mean) | 7/8 | 2.40 |
+
+**Thus, a good value is probably around 3.**
+
+
+### `radi_prior_sd`
+
+A priori, we would probably expect two standard deviations of Radiant advantage to be around $50 \% \pm 7.5 \%$. Thus, two standard deviations should equate to a win probability of $57.5 \%$. $p = 1 / (1 + \exp(-d / l)) \leftrightarrow d = -s * \log ((1-p)/p)$. At this win probability, the difference should be 0.91. **So two standard deviations of Radiant prior SD should be 0.91, i.e. one standard deviation is around 0.5.**
+
 ## 2019-08-06
 
 The conditional probability of a multivariate normal is provided in Wikipedia [here](https://en.wikipedia.org/wiki/Multivariate_normal_distribution#Conditional_distributions).

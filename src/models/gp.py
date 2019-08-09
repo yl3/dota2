@@ -2,6 +2,7 @@
 
 
 import copy
+import itertools
 import math
 import numpy as np
 import pandas as pd
@@ -11,6 +12,8 @@ import scipy.optimize
 import scipy.spatial.distance
 import scipy.stats
 import warnings
+
+from .. import munge
 
 
 def bernoulli_logpmf(y, p):
@@ -60,9 +63,10 @@ def gp_predict(x_known, y_known, x_new, cov_func, alpha=1e-6):
     sigma_22_inv = scipy.linalg.inv(sigma_22)
     x_new_mu = sigma_12 @ sigma_22_inv @ y_known
     x_new_sigma = sigma_11 - sigma_12 @ sigma_22_inv @ sigma_21
-    if any(x_new_sigma < 0.0):
-        assert np.allclose(x_new_sigma[x_new_sigma < 0], 0.0)
-        x_new_sigma = np.maximum(x_new_sigma, 0.0)
+    if any(x_new_sigma.reshape(-1) < 0.0):
+        x_new_sigma_vec = x_new_sigma.reshape(-1)
+        assert np.allclose(x_new_sigma_vec[x_new_sigma_vec < 0], 0.0)
+        x_new_sigma_vec = np.maximum(x_new_sigma_vec, 0.0)
     return x_new_mu, x_new_sigma
 
 
@@ -405,6 +409,7 @@ class SkillsGPMAP(SkillsGP):
 
         mu_of_player = []
         cov_of_player = []
+        player_ids = np.unique(player_ids)
         for player_id in player_ids:
             if player_id in self.players_mat.columns:
                 games_idx = self._games_by_player[player_id]
@@ -417,14 +422,38 @@ class SkillsGPMAP(SkillsGP):
                 cov_of_player.append(np.diagonal(cov_mat))
             else:
                 # Just use the hard-coded prior.
-                mu_of_player.append([0.0])
-                cov_of_player.append([1.0])
+                mu_of_player.append(np.repeat(0.0, len(new_times)))
+                cov_of_player.append(np.repeat(1.0, len(new_times)))
         pred_mat = np.array(mu_of_player).T
         var_mat = np.array(cov_of_player).T
         if as_df:
             pred_mat = pd.DataFrame(pred_mat, index=new_times,
                                     columns=player_ids)
             var_mat = pd.DataFrame(var_mat, index=new_times, columns=player_ids)
+        return pred_mat, var_mat
+
+    def predict_skills_mat(self, radiant_players, dire_players, start_times):
+        """Predict the skills of players.
+
+        Useful for backtesting.
+
+        Args:
+            radiant_players (pandas.Series): A list of lists of Radiant player
+                IDs for the new matches.
+            dire_players (pandas.Series): A list of lists of Dire player ID for
+                the new matchess.
+            start_times (array-like): A 1D integer array of time stamps in the
+                same unit as `self.start_times` for the new matches.
+
+        Returns:
+            pred_mat (pandas.DataFrame): A len(start_times) by
+                len(radiant_players) data frame of player skills.
+            var_mat (numpy.ndarray): A len(start_times) by len(radiant_players)
+                data frame of player skill variances.
+        """
+        player_ids = radiant_players + dire_players
+        player_ids = list(itertools.chain.from_iterable(list(player_ids)))
+        pred_mat, var_mat = self.predict(start_times, player_ids, as_df=True)
         return pred_mat, var_mat
 
     def predict_matches(self, radiant_players, dire_players, start_times):
@@ -445,32 +474,39 @@ class SkillsGPMAP(SkillsGP):
                 win probability confidence interval, 97.5% win probability
                 confidence interval, predicted Radiant skill, Radiant skill
                 standard deviation, predicted Dire skill, Dire skill standard
-                deviation, predicted Radiant advantage.
+                deviation, predicted Radiant advantage. The data frame is
+                indexed by
+            mu_mat (pandas.DataFrame): A len(start_times) by
+                len(radiant_players) data frame of player skills.
+            var_mat (numpy.ndarray): A len(start_times) by len(radiant_players)
+                data frame of player skill variances.
         """
-        player_ids = radiant_players + dire_players
-        predicted_results = []
-        for players, start_time in zip(player_ids, start_times):
-            mu_mat, var_mat = self.predict([start_time], players, as_df=False)
-            radi_adv = self.fitted.x[-1]
-            radi_skill = np.sum(mu_mat[:, :5])
-            radi_skill_sd = math.sqrt(np.sum(var_mat[:, :5]))
-            dire_skill = np.sum(mu_mat[:, 5:])
-            dire_skill_sd = math.sqrt(np.sum(var_mat[:, 5:]))
-            skill_diff = radi_skill - dire_skill + radi_adv
-            skill_diff_sd = math.sqrt(np.sum(var_mat))
-            pred_win_prob = self.win_prob(skill_diff)
-            win_prob_low_bound = self.win_prob(skill_diff - 2 * skill_diff_sd)
-            win_prob_high_bound = self.win_prob(skill_diff + 2 * skill_diff_sd)
-            predicted_results.append((pred_win_prob, win_prob_low_bound,
-                                      win_prob_high_bound, radi_skill,
-                                      radi_skill_sd, dire_skill, dire_skill_sd,
-                                      radi_adv))
-        columns = ["pred_win_prob", "win_prob-2sd", "win_prob+2sd",
-                   "radi_skill", "radi_skill_sd", "dire_skill", "dire_skill_sd",
-                   "radi_adv"]
-        pred_df = pd.DataFrame(predicted_results, columns=columns,
-                               index=start_times)
-        return pred_df
+        mu_mat, var_mat = self.predict_skills_mat(radiant_players, dire_players,
+                                                  start_times)
+        player_mat = munge.make_match_players_matrix(radiant_players,
+                                                     dire_players)
+        player_mat.index = start_times
+        radi_skill = mu_mat[player_mat == 1.0].sum(1)
+        radi_skill_sd = np.sqrt(var_mat[player_mat == 1.0].sum(1))
+        dire_skill = mu_mat[player_mat == -1.0].sum(1)
+        dire_skill_sd = np.sqrt(var_mat[player_mat == -1.0].sum(1))
+        radi_adv = self.fitted.x[-1]
+        skill_diff = radi_skill - dire_skill + radi_adv
+        skill_diff_sd = np.sqrt(var_mat.sum(1))
+        pred_win_prob = self.win_prob(skill_diff)
+        win_prob_low_bound = self.win_prob(skill_diff - 2 * skill_diff_sd)
+        win_prob_high_bound = self.win_prob(skill_diff + 2 * skill_diff_sd)
+        pred_df = pd.DataFrame(
+            {'pred_win_prob': pred_win_prob,
+             'win_prob-2sd': win_prob_low_bound,
+             'win_prob+2sd': win_prob_high_bound,
+             'radi_skill': radi_skill,
+             'radi_skill_sd': radi_skill_sd,
+             'dire_skill': dire_skill,
+             'dire_skill_sd': dire_skill_sd,
+             'radi_adv': radi_adv},
+            index=start_times)
+        return pred_df, mu_mat, var_mat
 
     def add_matches(self, players_mat, start_times, radiant_win):
         """Add new matches to the current fitted `SkillsGPMAP` object.
