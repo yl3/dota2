@@ -2,6 +2,8 @@
 
 
 import copy
+import itertools
+import math
 import numpy as np
 import pandas as pd
 import progressbar
@@ -11,6 +13,8 @@ import scipy.spatial.distance
 import scipy.stats
 import warnings
 
+from .. import munge
+
 
 def bernoulli_logpmf(y, p):
     """Bernoulli log-pmf without checks."""
@@ -18,7 +22,7 @@ def bernoulli_logpmf(y, p):
     return loglik
 
 
-def exp_cov_mat(x, scale=1.0):
+def exp_cov_mat(x1, scale, x2=None, alpha=1e-6):
     """Exponential (Ornstein-Uhlenbeck) distance covariance matrix.
 
     At a distance |x_i - x_j| of 1 * scale, the correlation between the two
@@ -26,14 +30,44 @@ def exp_cov_mat(x, scale=1.0):
     are around 0.8 and 0.6, respectively
     (see Fig. 4.1 in http://www.gaussianprocess.org/gpml/chapters/RW4.pdf).
 
-    A good scale is could be 2 years.
+    Alpha is the value added to the diagonal of the kernel matrix during
+    fitting.
     """
-    squeezed_dist = scipy.spatial.distance.pdist(np.array(x)[:, np.newaxis],
-                                                 'minkowski', p=1.0)
-    cov_mat = scipy.spatial.distance.squareform(
-        np.exp(-squeezed_dist / scale))
-    cov_mat += np.diag(np.repeat(1.0, cov_mat.shape[0]))
+    if x2 is None:
+        x2 = x1
+    cov_mat = scipy.spatial.distance.cdist(
+        x1.astype(np.longdouble).reshape(-1, 1),
+        x2.astype(np.longdouble).reshape(-1, 1),
+        'minkowski',
+        p=1.0)
+    cov_mat = np.exp(-cov_mat / scale)
+    np.fill_diagonal(cov_mat, np.diagonal(cov_mat) + alpha)
     return cov_mat
+
+
+def gp_predict(x_known, y_known, x_new, cov_func, alpha=1e-6):
+    """Predict new values in a GP given observed values.
+
+    Notation used is that of
+    https://en.wikipedia.org/wiki/Multivariate_normal_distribution#Conditional_distributions
+
+    Alpha is the value added to the diagonal of the kernel matrix during
+    fitting.
+    """
+    sigma = cov_func(np.append(x_new, x_known))
+    np.fill_diagonal(sigma, np.diagonal(sigma) + alpha)
+    sigma_11 = sigma[:len(x_new), :len(x_new)]
+    sigma_12 = sigma[:len(x_new), len(x_new):]
+    sigma_21 = sigma[len(x_new):, :len(x_new)]
+    sigma_22 = sigma[len(x_new):, len(x_new):]
+    sigma_22_inv = scipy.linalg.inv(sigma_22)
+    x_new_mu = sigma_12 @ sigma_22_inv @ y_known
+    x_new_sigma = sigma_11 - sigma_12 @ sigma_22_inv @ sigma_21
+    if any(x_new_sigma.reshape(-1) < 0.0):
+        x_new_sigma_vec = x_new_sigma.reshape(-1)
+        assert np.allclose(x_new_sigma_vec[x_new_sigma_vec < 0], 0.0)
+        x_new_sigma_vec = np.maximum(x_new_sigma_vec, 0.0)
+    return x_new_mu, x_new_sigma
 
 
 def logistic_win_prob(skill_diff, scaling_factor):
@@ -53,6 +87,15 @@ def _dropna(a):
     return a[~np.isnan(a)]
 
 
+def _last_value(s, default):
+    """Return the last non-nan value in series S."""
+    idx = s.last_valid_index()
+    if idx is None:
+        return default
+    else:
+        return s[idx]
+
+
 class SkillsGP:
     """A Gaussian process super class for skills.
 
@@ -63,7 +106,8 @@ class SkillsGP:
         players_mat (numpy.ndarray): A 2D array with shape of *M* rows for
             matches and *N* columns for players. The values are in {1, -1}
             corresponding to playing on the radiant side, the dire side or
-            not at all in the respective match.
+            not at all in the respective match. If a player did not play a
+            match, the value should be 0.0.
         start_times (numpy.ndarray): A 1D array of *M* match start times in
             UTC timestamp (in milliseconds).
         radiant_win (numpy.ndarray): A 1D array of *M* boolean match
@@ -85,22 +129,27 @@ class SkillsGP:
         "exponential": exp_cov_mat
     }
 
-    def __init__(self, players_mat, start_times, radiant_win, player_ids,
-                 cov_func_name, cov_func_kwargs=None, radi_prior_sd=1.0,
-                 logistic_scale=0.2):
+    def __init__(self, players_mat, start_times, radiant_win, cov_func_name,
+                 cov_func_kwargs=None, radi_prior_sd=1.0, logistic_scale=0.2):
         # Some basic sanity checks.
         assert all(np.nansum(np.abs(players_mat), 1) == 10)
         assert all(np.nansum(players_mat, 1) == 0)  # 5 a side?
         assert isinstance(players_mat, pd.DataFrame)
+        assert all(start_times == sorted(start_times))
 
         # Save basic data.
         self.players_mat = players_mat
         self.M, self.N = players_mat.shape
         self.start_times = start_times
         self.radiant_win = np.where(radiant_win, 1, 0)
-        self.player_ids = player_ids
+        self.cov_func_name = cov_func_name
+        self.cov_func_kwargs = cov_func_kwargs
         self.radi_prior_sd = radi_prior_sd
         self.logistic_scale = logistic_scale
+
+        def cov_func(coords):
+            return self.COV_FUNCS[cov_func_name](coords, **cov_func_kwargs)
+        self.cov_func = cov_func
 
         # Pre-compute values.
         self._games_by_player = self._compute_games_of_players(self.players_mat)
@@ -110,14 +159,11 @@ class SkillsGP:
         # Side of each element in skill vector.
         self._sign_of_skill_idx = self._sign_of_skill_idx()
         # Start and end index of skills corresponding to each player.
-        self._skill_idx_of_player = self._skill_idx_of_player()
+        self._skill_slice_of_player = self._skill_slice_of_player()
         # self._skills_by_match_order can be used to reorder a skills or
         # sign vector by match.
         self._skills_by_match_order = np.argsort(self._match_of_skill_idx)
-
-        def cov_func(coords):
-            return self.COV_FUNCS[cov_func_name](coords, **cov_func_kwargs)
-        self.cov_mats = [cov_func(self.start_times[played_matches])
+        self.cov_mats = [self.cov_func(self.start_times[played_matches])
                          for played_matches in self._games_by_player]
 
     def win_prob(self, skill_diffs):
@@ -131,16 +177,6 @@ class SkillsGP:
         if not hasattr(self, "_skills_vec_split_idx"):
             self._skills_vec_split_idx = np.cumsum(self._ngames_by_player[:-1])
         return np.split(skills_vec, self._skills_vec_split_idx)
-
-    def cur_skills_mat(self):
-        """Create the current skills matrix."""
-        skills_per_player = [x[0].transformed() for x in self.player_skill_vecs]
-        expanded_skills_vecs = \
-            [self._expand_sparse_player_vec(skills_per_player[k],
-                                            self.player_skill_vecs[k][1])
-             for k in range(self.N)]
-        skills_mat = np.array(expanded_skills_vecs).T
-        return skills_mat
 
     def match_skill_diffs(self, skills_vec):
         """
@@ -223,10 +259,21 @@ class SkillsGP:
         total_loglik = total_skill_prior_lprob + radi_adv_lprob + match_loglik
         return total_loglik
 
+    def skills_mat(self, skills_vec):
+        """Convert the current skills vector into a skills matrix."""
+        skills_mat_t = np.full((self.N, self.M), np.nan)
+        skills_mat_t[self.players_mat.T != 0.0] = skills_vec
+        skills_df = pd.DataFrame(skills_mat_t.T, index=self.players_mat.index,
+                                 columns=self.players_mat.columns)
+        return skills_df
+
     def _compute_games_of_players(self, players_mat):
-        """Return a list of indices for matches in which each player played."""
+        """
+        Return a series of indices for matches in which each player played.
+        """
         res = [np.where(players_mat.iloc[:, k] != 0)[0] for k in range(self.N)]
-        return res
+        games_of_players = pd.Series(res, index=players_mat.columns)
+        return games_of_players
 
     def _expand_sparse_player_vec(self, arr, idx):
         """Expand an array of values, arr, into a self.M long array."""
@@ -263,15 +310,256 @@ class SkillsGP:
                               for k in range(self.M)]
         return skill_idx_of_match
 
-    def _skill_idx_of_player(self):
+    def _skill_slice_of_player(self):
         """Compute the index of skills in a skill vector for the k'th player."""
         idx_offsets = np.cumsum([0] + self._ngames_by_player)
-        return list(zip(idx_offsets[:-1], idx_offsets[1:]))
+        skill_slice_of_player = pd.Series(
+            [slice(start, end)
+             for start, end in zip(idx_offsets[:-1], idx_offsets[1:])],
+            index=self.players_mat.columns)
+        return skill_slice_of_player
 
 
 class SkillsGPMAP(SkillsGP):
     """Class for computing the MAP of a skills GP model.
+
+    Args:
+        initial_values (numpy.ndarray): The initial 1D skills vector.
     """
+
+    def __init__(self, initial_skills=None, initial_radi_adv=None, *args,
+                 **kwargs):
+        super().__init__(*args, **kwargs)
+        if initial_skills is not None:
+            assert len(initial_skills) == self.M * 10
+            self._initial_skills = initial_skills
+        else:
+            self._initial_skills = np.full(self.M * 10, 0.0)
+        if initial_radi_adv is not None:
+            self._initial_radi_adv = initial_radi_adv
+        else:
+            self._initial_radi_adv = 0.0
+        self.fitted = None
+
+    def fit(self, initial_skills=None, initial_radi_adv=0.0, print_fit=False):
+        """Perform a Newton-Raphson fit of the model.
+
+        Args:
+            initial_skills (numpy.ndarray): A 1D array of skills of each player
+                in each match. Default: every player's skills start from 0.0.
+            initial_radi_adv (float): Initial Radiant advantage.
+            print_fit (bool): Whether to print the fitted results.
+
+        Returns:
+            tuple: A tuple of fitted skills and fitted Radiant advantage.
+        """
+        # Compute values used by minus_full_loglik() at each iteration.
+        inv_sd_mats = [scipy.linalg.inv(scipy.linalg.cholesky(x, lower=True))
+                       for x in self.cov_mats]
+        abs_log_dets = [np.linalg.slogdet(x)[1] for x in self.cov_mats]
+        abs_log_det = np.sum(abs_log_dets)
+
+        # Compute the sparse inverse covariance matrix used by minus_gradient()
+        # and minus_hessp() at each iteration.
+        minus_inv_cov_mats = [-scipy.linalg.inv(x) for x in self.cov_mats]
+        radi_adv_cov_mat = np.full((1, 1), -1 / (self.radi_prior_sd ** 2))
+        minus_inv_cov_mat = scipy.sparse.block_diag(
+            minus_inv_cov_mats + [radi_adv_cov_mat],
+            format='csr')
+
+        def minus_full_loglik(params):
+            skills, radi_adv = np.split(params, [self.M * 10])
+            return -self.log_posterior(skills, radi_adv, inv_sd_mats,
+                                       abs_log_det)
+
+        def minus_gradient(params):
+            skills, radi_adv = params[:-1], params[-1]
+            return -self._gradient(skills, radi_adv, minus_inv_cov_mat)
+
+        def minus_hessp(params, p):
+            skills, radi_adv = params[:-1], params[-1]
+            return -self._hessp(skills, radi_adv, p, minus_inv_cov_mat)
+
+        initial_values = np.append(self._initial_skills, self._initial_radi_adv)
+        self.fitted = scipy.optimize.minimize(
+            minus_full_loglik, initial_values, method='Newton-CG',
+            jac=minus_gradient, hessp=minus_hessp)
+
+        if print_fit:
+            print(self.fitted)
+
+    def predict(self, new_times, player_ids, as_df=True):
+        """Predict skills at a new timepoint.
+
+        Args:
+            new_times (numpy.ndarray): A 1D list of new times in the same scale
+                as `self.start_times`.
+            player_ids (iterable): An iterable of player IDs.
+            as_df (bool): Whether to return the results as a matrix or as a
+                Pandas data frame.
+
+        Returns:
+            pred_mat (numpy.ndarray): A len(new_times) by len(player_ids) matrix
+                or Pandas data frame of player skills.
+            var_mat (numpy.ndarray): A len(new_times) by len(player_ids) matrix
+                or Pandas data frame of player skill variances.
+        """
+        if self.fitted is None:
+            raise AttributeError("Please fit the model using self.fit() first.")
+
+        mu_of_player = []
+        cov_of_player = []
+        player_ids = np.unique(player_ids)
+        for player_id in player_ids:
+            if player_id in self.players_mat.columns:
+                games_idx = self._games_by_player[player_id]
+                x_train = self.start_times[games_idx]
+                y_train = self.fitted.x[self._skill_slice_of_player[player_id]]
+                x_pred = new_times
+                mu, cov_mat = gp_predict(x_train, y_train, x_pred,
+                                         self.cov_func)
+                mu_of_player.append(mu)
+                cov_of_player.append(np.diagonal(cov_mat))
+            else:
+                # Just use the hard-coded prior.
+                mu_of_player.append(np.repeat(0.0, len(new_times)))
+                cov_of_player.append(np.repeat(1.0, len(new_times)))
+        pred_mat = np.array(mu_of_player).T
+        var_mat = np.array(cov_of_player).T
+        if as_df:
+            pred_mat = pd.DataFrame(pred_mat, index=new_times,
+                                    columns=player_ids)
+            var_mat = pd.DataFrame(var_mat, index=new_times, columns=player_ids)
+        return pred_mat, var_mat
+
+    def predict_skills_mat(self, radiant_players, dire_players, start_times):
+        """Predict the skills of players.
+
+        Useful for backtesting.
+
+        Args:
+            radiant_players (pandas.Series): A list of lists of Radiant player
+                IDs for the new matches.
+            dire_players (pandas.Series): A list of lists of Dire player ID for
+                the new matchess.
+            start_times (array-like): A 1D integer array of time stamps in the
+                same unit as `self.start_times` for the new matches.
+
+        Returns:
+            pred_mat (pandas.DataFrame): A len(start_times) by
+                len(radiant_players) data frame of player skills.
+            var_mat (numpy.ndarray): A len(start_times) by len(radiant_players)
+                data frame of player skill variances.
+        """
+        player_ids = radiant_players + dire_players
+        player_ids = list(itertools.chain.from_iterable(list(player_ids)))
+        pred_mat, var_mat = self.predict(start_times, player_ids, as_df=True)
+        return pred_mat, var_mat
+
+    def predict_matches(self, radiant_players, dire_players, start_times):
+        """Predict the outcome of matches.
+
+        Useful for backtesting.
+
+        Args:
+            radiant_players (pandas.Series): A list of lists of Radiant player
+                IDs for the new matches.
+            dire_players (pandas.Series): A list of lists of Dire player ID for
+                the new matchess.
+            start_times (array-like): A 1D integer array of time stamps in the
+                same unit as `self.start_times` for the new matches.
+
+        Returns:
+            pred: A data frame of predicted Radiant team win probability, 2.5%
+                win probability confidence interval, 97.5% win probability
+                confidence interval, predicted Radiant skill, Radiant skill
+                standard deviation, predicted Dire skill, Dire skill standard
+                deviation, predicted Radiant advantage. The data frame is
+                indexed by
+            mu_mat (pandas.DataFrame): A len(start_times) by
+                len(radiant_players) data frame of player skills.
+            var_mat (numpy.ndarray): A len(start_times) by len(radiant_players)
+                data frame of player skill variances.
+        """
+        mu_mat, var_mat = self.predict_skills_mat(radiant_players, dire_players,
+                                                  start_times)
+        player_mat = munge.make_match_players_matrix(radiant_players,
+                                                     dire_players)
+        player_mat.index = start_times
+        radi_skill = mu_mat[player_mat == 1.0].sum(1)
+        radi_skill_sd = np.sqrt(var_mat[player_mat == 1.0].sum(1))
+        dire_skill = mu_mat[player_mat == -1.0].sum(1)
+        dire_skill_sd = np.sqrt(var_mat[player_mat == -1.0].sum(1))
+        radi_adv = self.fitted.x[-1]
+        skill_diff = radi_skill - dire_skill + radi_adv
+        skill_diff_sd = np.sqrt(var_mat.sum(1))
+        pred_win_prob = self.win_prob(skill_diff)
+        win_prob_low_bound = self.win_prob(skill_diff - 2 * skill_diff_sd)
+        win_prob_high_bound = self.win_prob(skill_diff + 2 * skill_diff_sd)
+        pred_df = pd.DataFrame(
+            {'pred_win_prob': pred_win_prob,
+             'win_prob-2sd': win_prob_low_bound,
+             'win_prob+2sd': win_prob_high_bound,
+             'radi_skill': radi_skill,
+             'radi_skill_sd': radi_skill_sd,
+             'dire_skill': dire_skill,
+             'dire_skill_sd': dire_skill_sd,
+             'radi_adv': radi_adv},
+            index=start_times)
+        return pred_df, mu_mat, var_mat
+
+    def add_matches(self, players_mat, start_times, radiant_win):
+        """Add new matches to the current fitted `SkillsGPMAP` object.
+
+        Impute the initial skills based on the currently fitted results.
+        """
+        concatenated_times = np.concatenate([self.start_times, start_times])
+        assert all(concatenated_times == sorted(concatenated_times))
+
+        # A (ultimately row) vector of imputed skills per player.
+        imputed_skills_of_player = []
+        for player_id in players_mat.columns:
+            if player_id not in self.players_mat.columns:
+                # If a player doesn't have a played match yet, use the hard-
+                # code default.
+                imputed_skills_of_player.append(0.0)
+            else:
+                imputed_skills_of_player.append(
+                    self.fitted.x[self._skill_slice_of_player[player_id]][-1])
+        imputed_skills_of_player = \
+            np.array(imputed_skills_of_player).reshape(1, -1)
+
+        # Fill the new skills matrix using the imputed skills.
+        imputed_skills_mat = players_mat.copy()
+        imputed_skills_mat[imputed_skills_mat == 0.0] = np.nan
+        # With broadcasting, we can now fill in the non-nan values of each
+        # row using the imputed skills.
+        imputed_skills_mat = imputed_skills_mat * 0.0 + imputed_skills_of_player
+
+        # Create the extended player and skills matrices.
+        new_players_mat = self.players_mat.append(players_mat).fillna(0.0)
+        fitted_skills_mat = self.skills_mat(self.fitted.x[:-1])
+        new_skills_mat = fitted_skills_mat.append(
+            pd.DataFrame(imputed_skills_mat, index=players_mat.index,
+                         columns=players_mat.columns))
+        assert (all(new_players_mat.index == new_skills_mat.index)
+                and all(new_players_mat.columns == new_skills_mat.columns))
+
+        # Create the new object.
+        new_initial_skills = new_skills_mat.values.T[
+            new_players_mat.values.T != 0.0]
+        new_skillsgp = SkillsGPMAP(
+            initial_skills=new_initial_skills,
+            initial_radi_adv=self.fitted.x[-1],
+            players_mat=new_players_mat,
+            start_times=concatenated_times,
+            radiant_win=np.concatenate([self.radiant_win, radiant_win]),
+            cov_func_name=self.cov_func_name,
+            cov_func_kwargs=self.cov_func_kwargs,
+            radi_prior_sd=self.radi_prior_sd,
+            logistic_scale=self.logistic_scale
+        )
+        return new_skillsgp
 
     def _gradient(self, skills, radi_adv, minus_inv_cov_mat):
         """Gradient of the model - helper function needed by self.fit().
@@ -351,52 +639,6 @@ class SkillsGPMAP(SkillsGP):
 
         total_hessp = prior_lprob_hessian_p + hessp_of_skill_idx
         return total_hessp
-
-    def fit(self, initial_skills=None, initial_radi_adv=0.0):
-        """Perform a Newton-Raphson fit of the model.
-
-        Args:
-            initial_skills (numpy.ndarray): A 1D array of skills of each player
-                in each match. Default: every player's skills start from 0.0.
-            initial_radi_adv (float): Initial Radiant advantage.
-
-        Returns:
-            tuple: A tuple of fitted skills and fitted Radiant advantage.
-        """
-        # Compute values used by minus_full_loglik() at each iteration.
-        inv_sd_mats = [scipy.linalg.inv(scipy.linalg.cholesky(x, lower=True))
-                       for x in self.cov_mats]
-        abs_log_dets = [np.linalg.slogdet(x)[1] for x in self.cov_mats]
-        abs_log_det = np.sum(abs_log_dets)
-
-        # Compute the sparse inverse covariance matrix used by minus_gradient()
-        # and minus_hessp() at each iteration.
-        minus_inv_cov_mats = [-scipy.linalg.inv(x) for x in self.cov_mats]
-        radi_adv_cov_mat = np.full((1, 1), -1 / (self.radi_prior_sd ** 2))
-        minus_inv_cov_mat = scipy.sparse.block_diag(
-            minus_inv_cov_mats + [radi_adv_cov_mat],
-            format='csr')
-
-        def minus_full_loglik(params):
-            skills, radi_adv = np.split(params, [self.M * 10])
-            return -self.log_posterior(skills, radi_adv, inv_sd_mats,
-                                       abs_log_det)
-
-        def minus_gradient(params):
-            skills, radi_adv = params[:-1], params[-1]
-            return -self._gradient(skills, radi_adv, minus_inv_cov_mat)
-
-        def minus_hessp(params, p):
-            skills, radi_adv = params[:-1], params[-1]
-            return -self._hessp(skills, radi_adv, p, minus_inv_cov_mat)
-
-        self.fitted = scipy.optimize.minimize(
-            minus_full_loglik, np.zeros(self.M * 10 + 1), method='Newton-CG',
-            jac=minus_gradient, hessp=minus_hessp)
-        print(self.fitted)
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
 
 
 class GPVec():
@@ -552,25 +794,19 @@ class SkillsGPMCMC(SkillsGP):
         """Return a matrix (iteration * match) of skills.
 
         Args:
-            player (int or str): The player ID or name of interest.
+            player (int): The player ID of interest.
             sample_slice (slice): A slice for slicing iterations.
         """
-        if isinstance(player, int):
-            player_idx = np.where(self.player_ids.index == player)[0]
-        elif isinstance(player, str):
-            player_idx = np.where(self.player_ids == player)[0]
-        if len(player_idx) != 1:
-            raise ValueError(f"Found {len(player_idx)} matches for {player}.")
-        else:
-            player_idx = player_idx[0]
-        start, end = self._skill_idx_of_player[player_idx]
-        skill_by_match_mat = np.array([s.skills[start:end]
+        if player not in self.players_mat.columns:
+            raise ValueError(f"No match for player ID {player}.")
+        skills_slice = self._skill_slice_of_player[player]
+        skill_by_match_mat = np.array([s.skills[skills_slice]
                                        for s in self.samples[sample_slice]])
         iters = pd.Series([s.iter for s in self.samples[sample_slice]],
                           name='iter')
         skills_by_match_df = pd.DataFrame(
             skill_by_match_mat, index=iters,
-            columns=self.players_mat.index[self._games_by_player[player_idx]])
+            columns=self.players_mat.index[self._games_by_player[player]])
         return skills_by_match_df
 
     def team_skill_by_sample(self, side="radiant", sample_slice=slice(None)):
@@ -663,7 +899,7 @@ class SkillsGPMCMC(SkillsGP):
         """Perform a block-wise iteration across all players."""
         for i in range(self.N):
             player_skills_gp = self.player_skill_vecs[i]
-            match_idx = self._games_by_player[i]
+            match_idx = self._games_by_player.iloc[i]
             skills_delta = np.random.normal(scale=self.propose_sd,
                                             size=len(match_idx))
 
@@ -693,6 +929,16 @@ class SkillsGPMCMC(SkillsGP):
                 self._cur_log_posterior += log_bayes_factor
                 self._skills_accept_rate[0] += 1
             self._skills_accept_rate[1] += 1
+
+    def cur_skills_mat(self):
+        """Create the current skills matrix."""
+        skills_per_player = [x[0].transformed() for x in self.player_skill_vecs]
+        expanded_skills_vecs = \
+            [self._expand_sparse_player_vec(skills_per_player[k],
+                                            self.player_skill_vecs[k][1])
+             for k in range(self.N)]
+        skills_mat = np.array(expanded_skills_vecs).T
+        return skills_mat
 
     def _cur_skills_vec(self):
         """Concatenate the skills vectors for each GPVec object."""

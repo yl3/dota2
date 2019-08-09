@@ -1,5 +1,132 @@
 # Notes
 
+## 2019-08-09
+
+TODO:
+
+- Iterative fitting in chunks of series [DONE].
+- Return matrices of per-player skills and standard deviations [DONE].
+- Profiling of the iterative fitting code (from match 4,500 onwards) [DONE].
+
+Some minor profiling of the `backtest.py` code. When fitting a small number of matches (starting point is 100 fitted matches), about 10% of the time is spent on predicting, 25% on adding matches and 50% on fitting.
+
+    Line #      Hits         Time  Per Hit   % Time  Line Contents
+    ==============================================================
+       123        74         99.0      1.3      0.0              predicted, mu_mat, var_mat = gp_model.predict_matches(
+       124        74      11506.0    155.5      0.0                  match_grp.radiant_players,
+       125        74       9384.0    126.8      0.0                  match_grp.dire_players,
+       126        74    9255090.0 125068.8      9.7                  match_grp.startTimestamp)
+       ...
+       142        74        237.0      3.2      0.0              gp_model = gp_model.add_matches(new_players_mat,
+       143        74       2139.0     28.9      0.0                                              match_grp.startTimestamp,
+       144        74   24315298.0 328585.1     25.4                                              match_grp.radiantVictory)
+       145        74   54383483.0 734911.9     56.8              gp_model.fit()
+
+When starting from 4,500 fitted matches, all the time is spent on matches.
+
+    Line #      Hits         Time  Per Hit   % Time  Line Contents
+    ==============================================================
+       104         1          4.0      4.0      0.0      sys.stderr.write(
+       105         1         76.0     76.0      0.0          f"[{_cur_time()}] Fitting the {args.training_matches} matches.\n")
+       106         1  186984290.0 186984290.0  20.1      gp_model.fit()
+    ...
+       142        10         29.0      2.9      0.0              gp_model = gp_model.add_matches(new_players_mat,
+       143        10        325.0     32.5      0.0                                              match_grp.startTimestamp,
+       144        10   45240502.0 4524050.2     4.9                                              match_grp.radiantVictory)
+       145        10  692805870.0 69280587.0   74.5              gp_model.fit()
+
+
+## 2018-08-08
+
+Next thing to do is to decide what hyperparameter values to use. The hyperparameters in question are:
+
+* `radi_prior_sd` - the standard deviation of the prior Gaussian distribution for Radiant advantage.
+* `logistic_scale` - the scaling factor $l$ for the logistic regression formula $1 / (1 + \exp(-d / l))$.
+* `scale` - the time scale for the covariance function.
+
+### `scale`
+
+How much should skills be autocorrelated? This can be ultimately estimated from the data.
+
+The formula is $\exp(-|d|/s) = \sigma^2 \leftrightarrow s = -|d|/\log \sigma^2$.
+
+| Distance in years | $\mathbf{E}[\text{autocorrelation}]$ | $\mathbf{E}[\text{covariance}]$ | Imputed `scale` |
+|:-------------:|:-------------:| -----:|---|
+| 0.25 | 0.9-0.95 | 0.81-0.90 | 1.19-2.37 |
+| 0.5  | ~0.8 | ~0.64 | ~1.12 |
+| 1    | ~0.7 | ~0.49 | ~1.40 |
+
+**Thus, somewhere around 1-1.5 seems like a good choice for the `scale` parameter.**
+
+### `logistic_scale`
+
+The GP prior standard deviation is assumed to be 1. We want to set `logistic_scale` $s$ such that we get the following expected win rates.
+
+The formula is $1 / (1 + \exp(-d / s)) = p \leftrightarrow s = -d / \log ((1-p)/p)$.
+
+| Team skill | Win rate compared with an average team | Estimated scale |
+|:---------|:---|:---|
+| 10 (five players each 2 sds above the mean) | 19/20 | 3.40 |
+| 10 (five players each 2 sds above the mean) | 24/25 | 3.11 |
+| 5 (five players each 1 sd above the mean) | 4/5 | 3.11 |
+| 5 (five players each 1 sd above the mean) | 7/8 | 2.40 |
+
+**Thus, a good value is probably around 3.**
+
+
+### `radi_prior_sd`
+
+A priori, we would probably expect two standard deviations of Radiant advantage to be around $50 \% \pm 7.5 \%$. Thus, two standard deviations should equate to a win probability of $57.5 \%$. $p = 1 / (1 + \exp(-d / l)) \leftrightarrow d = -s * \log ((1-p)/p)$. At this win probability, the difference should be 0.91. **So two standard deviations of Radiant prior SD should be 0.91, i.e. one standard deviation is around 0.5.**
+
+## 2019-08-06
+
+The conditional probability of a multivariate normal is provided in Wikipedia [here](https://en.wikipedia.org/wiki/Multivariate_normal_distribution#Conditional_distributions).
+
+For reference, the fitting results of all but the *last* (oldest) match in the TI9 qualifiers match dataset is the following.
+
+         fun: -7222.4671618023995
+         jac: array([-1.00780705e-05, -2.35187119e-06,  1.31262516e-05, ...,
+           -1.39675435e-05,  4.02921851e-06,  1.40821844e-05])
+     message: 'Optimization terminated successfully.'
+        nfev: 15
+        nhev: 2279
+         nit: 14
+        njev: 28
+      status: 0
+     success: True
+           x: array([-0.2865158 , -0.28647442, -0.28642566, ..., -0.16772377,
+           -0.16776032, -0.09798433])
+
+The fitting results for the TI9 qualifiers results but the *first* (newest) match is the following.
+
+         fun: -7215.896591841696
+         jac: array([-4.42373891e-06,  2.27665835e-06, -6.43913576e-06, ...,
+            2.74491658e-06, -6.37987750e-06,  2.63498046e-05])
+     message: 'Optimization terminated successfully.'
+        nfev: 21
+        nhev: 2561
+         nit: 18
+        njev: 38
+      status: 0
+     success: True
+           x: array([-0.2846862 , -0.28505657, -0.28517459, ..., -0.16446207,
+           -0.16434913, -0.07946344])
+
+After incrementally fitting the first (newest) match, we get the following fitting results. The fitting took **600 ms**.
+
+         fun: -7251.013162612773
+         jac: array([ 6.18084507e-06, -8.36016304e-06, -5.12338929e-06, ...,
+           -8.23186910e-06, -2.32293850e-06, -5.05975558e-05])
+     message: 'Optimization terminated successfully.'
+        nfev: 9
+        nhev: 1163
+         nit: 8
+        njev: 16
+      status: 0
+     success: True
+           x: array([-0.28478576, -0.28515596, -0.28527381, ..., -0.16480323,
+           -0.16469046, -0.08426584])
+
 ## 2019-08-04
 
 After refactoring the Newton-CG fitting code, the fitted results (approximately) match with the old code's results.
@@ -117,6 +244,12 @@ By avoiding the `scipy.stats.multivariate_normal.logpdf()` call, we are shaving 
     577     18525      13341.0      0.7      0.3                  abs_det = abs_log_dets[k]
     578     18525    3183719.0    171.9     64.1                  temp = np.sum(scipy.stats.norm.logpdf(x)) - 0.5 * abs_det
     579     18525      22310.0      1.2      0.4                  skill_prior_lprobs.append(temp)
+
+### Incremental Newton-CG fitting
+
+If only one value needs to be updated, we can impute the skills of the new game (based on already fitted player skills) and refit the entire skills vector from this starting point.
+
+In the full dataset, this incremental fitting of one more match's skills took 56 seconds, about a third of the full fit (3 minutes on the notebook). Whereas the full fit required 15 iterations and 16,031 Hessian evaluations, the incremental fit required only 4 iterations and 5,198 Hessian evaluations.
 
 ## 2019-07-31
 

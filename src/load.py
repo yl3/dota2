@@ -2,6 +2,7 @@
 
 
 import json
+import numpy as np
 import pandas as pd
 
 
@@ -33,12 +34,23 @@ def _flatten_match_json(json_entry):
     return out_dict
 
 
-def all_matches_df():
-    """Load a Pandas DataFrame of all matches."""
-    matches_json = all_matches_json()
+def matches_json_to_df(matches_json):
+    """Convert a matches JSON format into a Pandas data frame."""
     matches_df = pd.DataFrame([_flatten_match_json(x) for x in matches_json])
     matches_df['seriesId'] = matches_df['seriesId'].astype(pd.Int64Dtype())
     matches_df['startTimestamp'] = matches_df['startDate'].values
     matches_df['startDate'] = pd.to_datetime(matches_df.startDate, unit='ms')
     matches_df.set_index("matchId", inplace=True)
+    col_names = ['startDate', 'league_name', 'radiant_name', 'dire_name',
+                 'radiantVictory', 'radiant_nicknames', 'dire_nicknames']
+    cols = np.concatenate(
+        [col_names, matches_df.columns[~matches_df.columns.isin(col_names)]])
+    matches_df = matches_df.loc[:, cols]
+    matches_df.sort_values('startDate', inplace=True)
     return matches_df
+
+
+def all_matches_df():
+    """Load a Pandas DataFrame of all matches."""
+    matches_json = all_matches_json()
+    return matches_json_to_df(matches_json)
