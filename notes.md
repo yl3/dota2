@@ -4,9 +4,37 @@
 
 TODO:
 
-- Iterative fitting in chunks of series.
-- Return matrices of per-player skills and standard deviations.
-- Profiling of the iterative fitting code (from match 4,500 onwards).
+- Iterative fitting in chunks of series [DONE].
+- Return matrices of per-player skills and standard deviations [DONE].
+- Profiling of the iterative fitting code (from match 4,500 onwards) [DONE].
+
+Some minor profiling of the `backtest.py` code. When fitting a small number of matches (starting point is 100 fitted matches), about 10% of the time is spent on predicting, 25% on adding matches and 50% on fitting.
+
+    Line #      Hits         Time  Per Hit   % Time  Line Contents
+    ==============================================================
+       123        74         99.0      1.3      0.0              predicted, mu_mat, var_mat = gp_model.predict_matches(
+       124        74      11506.0    155.5      0.0                  match_grp.radiant_players,
+       125        74       9384.0    126.8      0.0                  match_grp.dire_players,
+       126        74    9255090.0 125068.8      9.7                  match_grp.startTimestamp)
+       ...
+       142        74        237.0      3.2      0.0              gp_model = gp_model.add_matches(new_players_mat,
+       143        74       2139.0     28.9      0.0                                              match_grp.startTimestamp,
+       144        74   24315298.0 328585.1     25.4                                              match_grp.radiantVictory)
+       145        74   54383483.0 734911.9     56.8              gp_model.fit()
+
+When starting from 4,500 fitted matches, all the time is spent on matches.
+
+    Line #      Hits         Time  Per Hit   % Time  Line Contents
+    ==============================================================
+       104         1          4.0      4.0      0.0      sys.stderr.write(
+       105         1         76.0     76.0      0.0          f"[{_cur_time()}] Fitting the {args.training_matches} matches.\n")
+       106         1  186984290.0 186984290.0  20.1      gp_model.fit()
+    ...
+       142        10         29.0      2.9      0.0              gp_model = gp_model.add_matches(new_players_mat,
+       143        10        325.0     32.5      0.0                                              match_grp.startTimestamp,
+       144        10   45240502.0 4524050.2     4.9                                              match_grp.radiantVictory)
+       145        10  692805870.0 69280587.0   74.5              gp_model.fit()
+
 
 ## 2018-08-08
 
