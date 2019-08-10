@@ -51,32 +51,6 @@ def load_matches(json_file):
     return matches
 
 
-def _order_matches_by_series(matches):
-    """Order a matches data frame by when the match or series started.
-
-    A matches data frame is created using load_matches().
-    """
-    start_time_of_series = pd.Series(matches.seriesId.values,
-                                     index=matches.startTimestamp,
-                                     name='series_id').dropna()
-    start_time_of_series = (start_time_of_series
-                            .reset_index()
-                            .groupby('series_id')
-                            .aggregate({'startTimestamp': min})
-                            .squeeze())
-    # By default, use the match start times, but fill in the series start times
-    # if available.
-    match_series_start_time = pd.Series(matches.startTimestamp.values,
-                                        index=matches.seriesId,
-                                        name='startTimestamp')
-    idx = match_series_start_time.index.isin(start_time_of_series.index)
-    match_series_start_time.loc[idx] = start_time_of_series[
-        match_series_start_time.loc[idx].index]
-    matches = matches.assign(series_start_time=match_series_start_time.values)
-    matches.sort_values('series_start_time', inplace=True)
-    return matches
-
-
 def _cur_time():
     return datetime.datetime.now()
 
@@ -123,7 +97,7 @@ def iterative_newton_fitter(matches, args):
     Matches are fitted in chunks based on the start time of the `series`.
     """
     # Order by series start time.
-    matches = _order_matches_by_series(matches)
+    matches = matches.sort_values('series_start_time')
 
     # Fit the initial model.
     initial_matches = matches.iloc[:args.training_matches]
@@ -204,6 +178,8 @@ def iterative_newton_fitter(matches, args):
 def main():
     args = parse_args()
     matches = load_matches(args.matches_json)
+    # Perform checks and compute series start times.
+    matches = load.MatchDF(matches).df
     if args.method == 'newton':
         predictions, mu_df, var_df = iterative_newton_fitter(matches, args)
         predictions.to_csv(args.output_prefix + ".win_probs", sep="\t")

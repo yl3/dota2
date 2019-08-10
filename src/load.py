@@ -54,3 +54,56 @@ def all_matches_df():
     """Load a Pandas DataFrame of all matches."""
     matches_json = all_matches_json()
     return matches_json_to_df(matches_json)
+
+
+class MatchDF:
+    """Provide error checking and functionality for match data frame."""
+
+    def _validate_matches_df(self):
+        expected_columns = [
+            'startDate',
+            'league_name',
+            'radiant_name',
+            'dire_name',
+            'radiantVictory',
+            'radiant_nicknames',
+            'dire_nicknames',
+            'dire_players',
+            'dire_valveId',
+            'duration',
+            'league_id',
+            'radiant_players',
+            'radiant_valveId',
+            'seriesId',
+            'startTimestamp']
+        if not all(np.sort(self.df.columns) == sorted(expected_columns)):
+            raise ValueError("Expected columns not found.")
+
+    def _add_series_start_time(self):
+        """
+        Compute and add the series start time of each match to the matches
+        data frame.
+        """
+        start_time_of_series = pd.Series(self.df.seriesId.values,
+                                         index=self.df.startTimestamp,
+                                         name='series_id').dropna()
+        start_time_of_series = (start_time_of_series
+                                .reset_index()
+                                .groupby('series_id')
+                                .aggregate({'startTimestamp': min})
+                                .squeeze())
+        # By default, use the match start times, but fill in the series start
+        # times if available.
+        match_series_start_time = pd.Series(self.df.startTimestamp.values,
+                                            index=self.df.seriesId,
+                                            name='startTimestamp')
+        idx = match_series_start_time.index.isin(start_time_of_series.index)
+        match_series_start_time.loc[idx] = start_time_of_series[
+            match_series_start_time.loc[idx].index]
+        self.df = self.df.assign(
+            series_start_time=match_series_start_time.values)
+
+    def __init__(self, matches_df):
+        self.df = matches_df.sort_index()
+        self._validate_matches_df()
+        self._add_series_start_time()
