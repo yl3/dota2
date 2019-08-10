@@ -1,5 +1,22 @@
 # Notes
 
+## 2019-08-10
+
+Spec'ing out the plotting functionality. Use cases:
+
+1. Plotting one or multiple players or one or multiple teams in one plot (time vs skill).
+    1. Marker time is circle if Radiant, triangle if Dire.
+    2. Marker is filled if a match is won, or empty otherwise.
+    3. Teams and players are colored individually.
+2. Plotting observed and expected log-likelihood in one plot.
+3. All data points must also include line segments for +- 2 sd.
+4. On hover, all data points show the respective match information.
+    1. Match ID.
+    2. Radiant and Dire team names.
+    3. Radiant and Dire player names.
+    4. Player skill and +- 2 sds.
+5. Legend shows the player or team IDs (label of each data series).
+
 ## 2019-08-09
 
 TODO:
