@@ -167,6 +167,8 @@ def iterative_newton_fitter(matches, args):
                 match_grp.startTimestamp)
             predicted.reset_index(inplace=True)
             predicted.index = match_grp.index
+            mu_mat.index = predicted.index
+            var_mat.index = predicted.index
             mu_mats.append(mu_mat)
             var_mats.append(var_mat)
             predictions.append(predicted)
