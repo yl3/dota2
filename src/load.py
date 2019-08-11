@@ -64,28 +64,23 @@ class MatchDF:
     def __init__(self, matches_df):
         self._validate_matches_df(matches_df)
         self.df = matches_df
-        self._add_series_start_time()
-        self._add_match_i_in_series()
-        self.df = self.df.sort_index()  # Sort by match ID.
-        self._players = None
-        self._teams = None
-        self._players_mat = None
+        self.df = self._preprocess_matches_df(self.df)
 
     @property
     def players(self):
-        if self._players is None:
+        if not hasattr(self, '_players'):
             self._players = self._compute_players()
         return self._players
 
     @property
     def teams(self):
-        if self._teams is None:
+        if not hasattr(self, '_teams'):
             self._teams = munge.match_df_to_team_series(self.df)
         return self._teams
 
     @property
     def players_mat(self):
-        if self._players_mat is None:
+        if not hasattr(self, '_players_mat'):
             self._players_mat = munge.match_df_to_player_mat(self.df)
         return self._players_mat
 
@@ -109,39 +104,47 @@ class MatchDF:
         if not all([x in matches_df.columns for x in expected_columns]):
             raise ValueError("Expected columns not found.")
 
-    def _add_series_start_time(self):
-        """Compute and add the series start time of each match to self.df."""
-        start_time_of_series = pd.Series(self.df.seriesId.values,
-                                         index=self.df.startTimestamp,
-                                         name='series_id').dropna()
-        start_time_of_series = (start_time_of_series
-                                .reset_index()
-                                .groupby('series_id')
-                                .aggregate({'startTimestamp': min})
-                                .squeeze())
-        # By default, use the match start times, but fill in the series start
-        # times if available.
-        match_series_start_time = pd.Series(self.df.startTimestamp.values,
-                                            index=self.df.seriesId,
-                                            name='startTimestamp')
-        idx = match_series_start_time.index.isin(start_time_of_series.index)
-        match_series_start_time.loc[idx] = start_time_of_series[
-            match_series_start_time.loc[idx].index]
-        self.df['series_start_time'] = match_series_start_time.values
+    def _fill_missing_series_id(self, matches_df):
+        """Fill in missing series ID with the minus match ID."""
+        new_matches_df = matches_df.copy()
+        new_matches_df.loc[:, "seriesId"].fillna(-matches_df.index.to_series(),
+                                                 inplace=True)
+        return new_matches_df
 
-    def _add_match_i_in_series(self):
+    def _add_series_start_time(self, matches_df):
+        """Compute and add the series start time of each match to self.df."""
+        series_start_time = \
+            matches_df.groupby('seriesId')['startTimestamp'].min()
+        matches_df['series_start_time'] = \
+            series_start_time[matches_df.seriesId].values
+        return matches_df
+
+    def _add_match_i_in_series(self, matches_df):
         """Add match number of each match in each series."""
         # Use the (negative) match ID as a placeholder when series ID is
         # missing.
-        temp_series_id = self.df.seriesId.where(~self.df.seriesId.isna(),
-                                                -self.df.index.values)
-        temp_match_i_df = pd.DataFrame(
-            {'series': temp_series_id,
-             'match_i': np.repeat(1, len(temp_series_id))})
-        match_i = temp_match_i_df.groupby('series').aggregate(np.cumsum)
-        assert all(match_i.index == self.df.index)
-        self.df['match_i_in_series'] = match_i
+        assert all(matches_df.index == matches_df.index.sort_values())
+        temp_match_i_df = (matches_df.groupby('seriesId')
+                           .apply(lambda x: pd.Series(np.arange(len(x)),
+                                                      index=x.index))
+                           .reset_index())
+        temp_match_i_series = temp_match_i_df.set_index('matchId')[0]
+        matches_df = matches_df.assign(match_i_in_series=temp_match_i_series)
+        return matches_df
 
-    def _compute_players(self):
-        """Create a players matrix of the current data frame."""
-        return munge.match_df_to_player_df(self.df)
+    def _preprocess_matches_df(self, matches_df):
+        new_matches_df = matches_df.sort_index()  # Sort by match ID.
+        new_matches_df = self._fill_missing_series_id(new_matches_df)
+        new_matches_df = self._add_series_start_time(new_matches_df)
+        new_matches_df = self._add_match_i_in_series(new_matches_df)
+        return new_matches_df
+
+    def _compute_players(self, matches_df):
+        """Create a players matrix of a matches data frame."""
+        return munge.match_df_to_player_df(matches_df)
+
+    def _compute_series(self, matches_df):
+        """Create a series data frame of a matches data frame."""
+        # Make sure the matches are ordered by start time.
+        assert all(matches_df.startTimestamp
+                   == matches_df.startTimestamp.sort_values().values)
