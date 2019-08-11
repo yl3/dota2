@@ -62,9 +62,11 @@ class MatchDF:
     """Provide error checking and functionality for match data frame."""
 
     def __init__(self, matches_df):
-        self.df = matches_df.sort_index()
-        self._validate_matches_df()
+        self._validate_matches_df(matches_df)
+        self.df = matches_df
         self._add_series_start_time()
+        self._add_match_i_in_series()
+        self.df = self.df.sort_index()  # Sort by match ID.
         self._players = None
         self._teams = None
         self._players_mat = None
@@ -87,7 +89,7 @@ class MatchDF:
             self._players_mat = munge.match_df_to_player_mat(self.df)
         return self._players_mat
 
-    def _validate_matches_df(self):
+    def _validate_matches_df(self, matches_df):
         expected_columns = [
             'startDate',
             'league_name',
@@ -104,14 +106,11 @@ class MatchDF:
             'radiant_valveId',
             'seriesId',
             'startTimestamp']
-        if not all(np.sort(self.df.columns) == sorted(expected_columns)):
+        if not all([x in matches_df.columns for x in expected_columns]):
             raise ValueError("Expected columns not found.")
 
     def _add_series_start_time(self):
-        """
-        Compute and add the series start time of each match to the matches
-        data frame.
-        """
+        """Compute and add the series start time of each match to self.df."""
         start_time_of_series = pd.Series(self.df.seriesId.values,
                                          index=self.df.startTimestamp,
                                          name='series_id').dropna()
@@ -128,8 +127,20 @@ class MatchDF:
         idx = match_series_start_time.index.isin(start_time_of_series.index)
         match_series_start_time.loc[idx] = start_time_of_series[
             match_series_start_time.loc[idx].index]
-        self.df = self.df.assign(
-            series_start_time=match_series_start_time.values)
+        self.df['series_start_time'] = match_series_start_time.values
+
+    def _add_match_i_in_series(self):
+        """Add match number of each match in each series."""
+        # Use the (negative) match ID as a placeholder when series ID is
+        # missing.
+        temp_series_id = self.df.seriesId.where(~self.df.seriesId.isna(),
+                                                -self.df.index.values)
+        temp_match_i_df = pd.DataFrame(
+            {'series': temp_series_id,
+             'match_i': np.repeat(1, len(temp_series_id))})
+        match_i = temp_match_i_df.groupby('series').aggregate(np.cumsum)
+        assert all(match_i.index == self.df.index)
+        self.df['match_i_in_series'] = match_i
 
     def _compute_players(self):
         """Create a players matrix of the current data frame."""

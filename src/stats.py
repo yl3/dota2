@@ -23,11 +23,11 @@ def win_prob_mat(team_skills, logistic_scale):
     """
     upper = np.triu(scipy.spatial.distance.squareform(
         scipy.spatial.distance.pdist(
-            team_skills,
+            pd.DataFrame(team_skills),
             metric=lambda x, y: gp.logistic_win_prob(x - y, logistic_scale))))
     lower = np.tril(scipy.spatial.distance.squareform(
         scipy.spatial.distance.pdist(
-            team_skills,
+            pd.DataFrame(team_skills),
             metric=lambda x, y: gp.logistic_win_prob(y - x, logistic_scale))))
 
     return pd.DataFrame(upper + lower, index=team_skills.index,
@@ -85,14 +85,13 @@ class MatchPred:
         else:
             skills_mat = None
         assert isinstance(matches, load.MatchDF)
-        self.matches = load.MatchDF(matches.df.drop('series_start_time', 1)
-                                    .reindex(self.match_pred.index))
+        self.matches = load.MatchDF(matches.df.reindex(self.match_pred.index))
 
         # Need to re-reindex everything, since load.MatchDF sorts the data
-        # frame.
+        # frame by match ID..
         self.match_pred = self.match_pred.loc[self.matches.df.index]
         self.skills_mat = self.skills_mat.loc[self.matches.df.index]
-        
+
         self._hovertext = None
 
     @property
@@ -109,7 +108,7 @@ class MatchPred:
             player_name = self.matches.players.loc[pid, "name"]
             skills = self.skills_mat.loc[match_idx, pid]
             hovertext = [x + "</br>{}: {:.3f}".format(player_name, s)
-                         for x, s in zip(self._hovertext[match_idx], skills)]
+                         for x, s in zip(self.hovertext[match_idx], skills)]
             data = self._match_data_to_graph_obj(
                 self.matches.df.loc[:, "startDate"][match_idx].values,
                 skills,
@@ -135,7 +134,7 @@ class MatchPred:
                                   self.match_pred.dire_skill[match_idx])
             team_name = self.matches.teams[tid]
             hovertext = [x + "</br>{}: {:.3f}".format(team_name, skill)
-                         for x, skill in zip(self._hovertext[match_idx],
+                         for x, skill in zip(self.hovertext[match_idx],
                                              team_skill)]
             data = self._match_data_to_graph_obj(
                 self.matches.df.loc[:, "startDate"][match_idx].values,
@@ -149,6 +148,45 @@ class MatchPred:
             yaxis=plotly_go.layout.YAxis(title="Team skill"))
         fig = plotly_go.Figure(data=plotly_data, layout=layout)
         return fig
+
+    def match_pred_df_bias(self, win_prob_breaks=np.arange(0.0, 1.1, 0.1),
+                           iloc=slice(None), loc=None):
+        """Compute prediction bias in a match prediction data frame."""
+        temp = self.match_pred[["pred_win_prob"]].merge(
+            self.matches.df[["radiantVictory"]], left_index=True,
+            right_index=True)
+        if loc is None:
+            temp = temp.iloc[iloc]
+        else:
+            temp = temp.loc[loc]
+        win_prob_interval = \
+            pd.cut(temp.pred_win_prob, win_prob_breaks, include_lowest=True)
+        grouped = temp.groupby(win_prob_interval)
+        res_df = pd.DataFrame(
+            [pd.Series(
+                win_oe_pval_series(df.pred_win_prob, df.radiantVictory),
+                name=name)
+             for name, df in grouped])
+        res_df.loc[:, "exp_win"] = res_df.loc[:, "exp_win"].round(2)
+        return res_df
+
+    def team_skills(self):
+        """Most recent skills of each team."""
+        radi_skills = pd.DataFrame({'time': self.matches.df.startDate,
+                                    'team': self.matches.df.radiant_valveId,
+                                    'skill': self.match_pred.radi_skill})
+        dire_skills = pd.DataFrame({'time': self.matches.df.startDate,
+                                    'team': self.matches.df.dire_valveId,
+                                    'skill': self.match_pred.dire_skill})
+        combined_skills = (pd.concat([radi_skills, dire_skills])
+                           .sort_values('time'))
+        combined_skills = combined_skills.loc[
+            ~combined_skills.team.duplicated(keep='last')]
+        combined_skills = combined_skills.sort_values('skill', ascending=False)
+        combined_skills['team_name'] = \
+            self.matches.teams[combined_skills.team].values
+        combined_skills.set_index('team', inplace=True)
+        return combined_skills
 
     def _validate_match_pred(self, match_pred):
         """Validate columns in the match predictions table."""
