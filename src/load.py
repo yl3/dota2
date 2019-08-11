@@ -5,6 +5,8 @@ import json
 import numpy as np
 import pandas as pd
 
+from . import munge
+
 
 def all_matches_json():
     """Load all matches."""
@@ -59,6 +61,32 @@ def all_matches_df():
 class MatchDF:
     """Provide error checking and functionality for match data frame."""
 
+    def __init__(self, matches_df):
+        self.df = matches_df.sort_index()
+        self._validate_matches_df()
+        self._add_series_start_time()
+        self._players = None
+        self._teams = None
+        self._players_mat = None
+
+    @property
+    def players(self):
+        if self._players is None:
+            self._players = self._compute_players()
+        return self._players
+
+    @property
+    def teams(self):
+        if self._teams is None:
+            self._teams = munge.match_df_to_team_series(self.df)
+        return self._teams
+
+    @property
+    def players_mat(self):
+        if self._players_mat is None:
+            self._players_mat = munge.match_df_to_player_mat(self.df)
+        return self._players_mat
+
     def _validate_matches_df(self):
         expected_columns = [
             'startDate',
@@ -103,7 +131,6 @@ class MatchDF:
         self.df = self.df.assign(
             series_start_time=match_series_start_time.values)
 
-    def __init__(self, matches_df):
-        self.df = matches_df.sort_index()
-        self._validate_matches_df()
-        self._add_series_start_time()
+    def _compute_players(self):
+        """Create a players matrix of the current data frame."""
+        return munge.match_df_to_player_df(self.df)
