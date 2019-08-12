@@ -106,6 +106,89 @@ def _roc_curve_plotly_plot(data):
     return plotly_go.Figure(data=data + [null_trace], layout=layout)
 
 
+class DotaSeries:
+    """A class for a set (aka series) of matches and its win probability.
+
+    Args:
+        match_dicts (list): A list of dictionaries with keys for all of
+            ['radiant_valveId', 'dire_valveId', 'radiantVictory', 'radi_adv',
+            'radiant_name', 'dire_name'].
+            The list is expected to be ordered by 'startDate'.
+        team_1_match_win_prob (list): The predicted win probability of each
+            match in the series for team 1, which is the Radiant team of the
+            first match.
+    """
+    def __init__(self, match_dicts, team_1_match_win_prob):
+        self.match_dicts = match_dicts
+        self.team_1_match_win_prob = team_1_match_win_prob
+        self._set_attrs()
+
+    def from_df(df):
+        """
+        The data frame conforms to `MatchDF` checks plus must have a
+        column called 'pred_win_prob'.
+        """
+        return DotaSeries(df.to_dict('records'), df.pred_win_prob.iloc[0])
+
+    def to_dict(self):
+        """Create a dictionary out of all the useful attributes."""
+        attrs = ['startDate', 'best_of', 'team_1', 'team_1_name', 'team_2',
+                 'team_2_name', 'team_1_score', 'team_2_score', 'winner',
+                 'team_1_series_win_prob', 'team_2_series_win_prob',
+                 'series_draw_prob']
+        return {k: self.__getattribute__(k) for k in attrs}
+
+    def _set_attrs(self):
+        """Compute and set attributes from self.match_dicts."""
+        self.team_1 = self.match_dicts[0]['radiant_valveId']
+        self.team_1_name = self.match_dicts[0]['radiant_name']
+        self.team_2 = self.match_dicts[0]['dire_valveId']
+        self.team_2_name = self.match_dicts[0]['dire_name']
+        self.startDate = self.match_dicts[0]['startDate']
+
+        # Compute team 1 and team 2's skills by match.
+        for match in self.match_dicts:
+            if match['radiant_valveId'] == self.team_1:
+                match['team_1_win'] = match['radiantVictory']
+            else:
+                match['team_1_win'] = not match['radiantVictory']
+
+        # Figure out team 1 and team 2 scores and the series length.
+        self.team_1_score = self.team_2_score = 0
+        self.team_1_score = sum([x['team_1_win']
+                                 for x in self.match_dicts])
+        self.team_2_score = sum([not x['team_1_win']
+                                 for x in self.match_dicts])
+        assert self.team_1_score + self.team_2_score == len(self.match_dicts)
+        self.series_draw_prob = 0.0
+        if self.team_1_score == self.team_2_score:
+            self.best_of = self.team_1_score
+            self.winner = None
+            self.series_draw_prob = \
+                scipy.stats.binom.pmf(self.team_1_score, self.best_of,
+                                      self.team_1_match_win_prob)
+        elif self.team_1_score > self.team_2_score:
+            self.best_of = 2 * self.team_1_score - 1
+            self.winner = self.team_1
+        elif self.team_1_score < self.team_2_score:
+            self.best_of = 2 * self.team_2_score - 1
+            self.winner = self.team_2
+        else:
+            breakpoint()
+            raise Exception("Unexpected scores with matches: \n"
+                            + str(self.match_dicts))
+
+        # Finally, Pre-compute the probability of each series outcome
+        # combination. In series_outcomes, 1 and 2 correspond to team 1 and 2
+        # winning.
+        points_to_win = self.best_of // 2 + 1
+        self.team_1_series_win_prob = \
+            1 - scipy.stats.binom.cdf(points_to_win - 1, self.best_of,
+                                      self.team_1_match_win_prob)
+        self.team_2_series_win_prob = \
+            1 - self.team_1_series_win_prob - self.series_draw_prob
+
+
 class MatchPred:
     """Class for storing and analysing match predictions."""
 
@@ -132,6 +215,20 @@ class MatchPred:
         if self._hovertext is None:
             self._hovertext = self._matches_to_hovertext()
         return self._hovertext
+
+    @property
+    def series_df(self):
+        """Compute a series data frame."""
+        if not hasattr(self, '_series_df', ):
+            skill_diff = self.match_pred.radi_skill - self.match_pred.dire_skill
+            radi_adv = self.match_pred.radi_adv
+            y_pred = (self.win_prob(skill_diff + radi_adv) / 2
+                      + self.win_prob(skill_diff - radi_adv) / 2)
+            self._series_df = \
+                (self.matches.df.assign(pred_win_prob=y_pred)
+                 .groupby('seriesId')
+                 .apply(lambda df: pd.Series(DotaSeries.from_df(df).to_dict())))
+        return self._series_df
 
     def win_prob(self, skill_diffs):
         return gp.logistic_win_prob(skill_diffs, self.logistic_scale)
@@ -199,7 +296,6 @@ class MatchPred:
             y_pred = self.match_pred.pred_win_prob
         else:
             y_pred = self.match_pred.pred_win_prob_unknown_side
-        print(y_pred.head(10))
         if loc_dict is not None:
             for name, loc in loc_dict.items():
                 trace = _prediction_to_plotly_roc_data(
@@ -216,9 +312,9 @@ class MatchPred:
         return _roc_curve_plotly_plot(traces)
 
     def match_pred_df_bias(self, win_prob_breaks=np.arange(0.0, 1.1, 0.1),
-                           iloc=slice(None), loc=None, side_known=True):
+                           iloc=slice(None), loc=None, assume_side_known=True):
         """Compute prediction bias in a match prediction data frame."""
-        if side_known:
+        if assume_side_known:
             temp = self.match_pred[["pred_win_prob"]].merge(
                 self.matches.df[["radiantVictory"]], left_index=True,
                 right_index=True)
@@ -246,6 +342,18 @@ class MatchPred:
              for name, df in grouped])
         res_df.loc[:, "exp_win"] = res_df.loc[:, "exp_win"].round(3)
         return res_df
+
+    def match_loglik(self, assume_side_known=True, team_ids=None):
+        if assume_side_known:
+            pred_win_prob = self.match_pred.pred_win_prob
+        else:
+            pred_win_prob = self.match_pred.pred_win_prob_unknown_side
+        loglik = np.log(np.where(self.matches.df.radiantVictory, pred_win_prob,
+                                 1 - pred_win_prob))
+        if team_ids is not None:
+            idx = self.matches.loc_team(team_ids)
+            loglik = loglik[idx]
+        return loglik
 
     def team_skills(self):
         """Most recent skills of each team."""
