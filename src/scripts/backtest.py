@@ -28,6 +28,8 @@ def parse_args():
     parser.add_argument("training_matches", help=help, type=int)
     help = "Number of matches after the training matches to use for prediction."
     parser.add_argument("test_matches", help=help, type=int)
+    help = "Number of initial matches to skip before training."
+    parser.add_argument("--skip_matches", type=int, help=help)
     parser.add_argument("--scale", type=float, default=2,
                         help="Scaling factor for covariance function (in "
                              "years). Default: 2 years.")
@@ -97,7 +99,11 @@ def iterative_newton_fitter(matches, args):
     Matches are fitted in chunks based on the start time of the `series`.
     """
     # Order by series start time.
-    matches = matches.sort_values('series_start_time')
+    matches = matches.sort_values(['series_start_time'])
+
+    # Remove skipped matches.
+    if args.skip_matches is not None:
+        matches = matches.iloc[args.skip_matches:]
 
     # Fit the initial model.
     initial_matches = matches.iloc[:args.training_matches]

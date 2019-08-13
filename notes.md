@@ -1,5 +1,26 @@
 # Notes
 
+## 2019-08-12
+
+While writing classes to test the first batch of the iterative fitting results, the next things to test through (back)testing are:
+
+1. The optimal MCMC proposal parameters to get close to around 0.234 acceptance rate.
+    1. Use the full 5,000 match dataset, iteratively find MAP then test different MCMC parameters. Record acceptance rates and the fitted models.
+2. Whether using fewer training matches severely deteriorates AUC, likelihood or precision when performing backtesting.
+    1. Test the AUC, likelihood and precision of the predictions for the final 1,000 matches (fitted iteratively using Newton-CG) when trained with an initial 1,000, 2,000, 3,000 or 4,000 matches.
+
+## 2019-08-11
+
+Now that we have some basic match backtesting functionality, we just need some series-level backtesting.
+
+1. Firstly, we need to see if a single skill level variable can really determine victory probability, or whether there are non-linear interactions between teams (for instance such that they beat each other in a circular way). To test this, we need to compute match-level pairwise expected and observed win counts between teams.
+2. Secondly, we need to start computing series-level outcome probabilities given match-level win probabilities.
+
+- First match of a series updates the probabilities. Thus, the chance of a 2-0 win becomes more extreme towards the first match's winner.
+- We need to sample the posterior to fully capture above.
+
+**TODO next:** match outcome probability bias and AUC.
+
 ## 2019-08-10
 
 Spec'ing out the plotting functionality. Use cases:
