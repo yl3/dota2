@@ -71,7 +71,7 @@ def win_oe_pval(win_probs, outcomes):
 def win_oe_pval_series(win_probs, outcomes):
     """Return a series of the win_oe_pval() output."""
     res = win_oe_pval(win_probs, outcomes)
-    idx = ['nmatch', 'nwin', 'exp_win', 'poibin_pval', 'pois_pval']
+    idx = ['n', 'obs', 'exp', 'poibin_pval', 'pois_pval']
     return pd.Series(res, index=idx)
 
 
@@ -106,6 +106,23 @@ def _roc_curve_plotly_plot(data):
     return plotly_go.Figure(data=data + [null_trace], layout=layout)
 
 
+def _win_prob_bias(pred_win_prob, outcome, win_prob_breaks):
+    """
+    Generate a data frame of observed and expected wins grouped by
+    predicted win probability bins.
+    """
+    win_prob_interval = \
+        pd.cut(pred_win_prob, win_prob_breaks, include_lowest=True)
+    temp = pd.DataFrame({'pred_win_prob': pred_win_prob, 'outcome': outcome})
+    grouped = temp.groupby(win_prob_interval)
+    res_df = pd.DataFrame(
+        [pd.Series(
+            win_oe_pval_series(df.pred_win_prob, df.outcome), name=name)
+         for name, df in grouped])
+    res_df.loc[:, "exp"] = res_df.loc[:, "exp"].round(3)
+    return res_df
+
+
 class DotaSeries:
     """A class for a set (aka series) of matches and its win probability.
 
@@ -131,11 +148,16 @@ class DotaSeries:
         return DotaSeries(df.to_dict('records'), df.pred_win_prob.iloc[0])
 
     def to_dict(self):
-        """Create a dictionary out of all the useful attributes."""
+        """Create a dictionary out of all the useful attributes.
+
+        Returns:
+            dict: A dictionary of the following values. 'winner': team ID of the
+                winning team or None.
+        """
         attrs = ['startDate', 'best_of', 'team_1', 'team_1_name', 'team_2',
                  'team_2_name', 'team_1_score', 'team_2_score', 'winner',
                  'team_1_series_win_prob', 'team_2_series_win_prob',
-                 'series_draw_prob']
+                 'series_draw_prob', 'team_1_match_win_prob']
         return {k: self.__getattribute__(k) for k in attrs}
 
     def _set_attrs(self):
@@ -162,7 +184,7 @@ class DotaSeries:
         assert self.team_1_score + self.team_2_score == len(self.match_dicts)
         self.series_draw_prob = 0.0
         if self.team_1_score == self.team_2_score:
-            self.best_of = self.team_1_score
+            self.best_of = 2 * self.team_1_score
             self.winner = None
             self.series_draw_prob = \
                 scipy.stats.binom.pmf(self.team_1_score, self.best_of,
@@ -174,7 +196,6 @@ class DotaSeries:
             self.best_of = 2 * self.team_2_score - 1
             self.winner = self.team_2
         else:
-            breakpoint()
             raise Exception("Unexpected scores with matches: \n"
                             + str(self.match_dicts))
 
@@ -193,6 +214,7 @@ class MatchPred:
     """Class for storing and analysing match predictions."""
 
     def __init__(self, matches, match_pred, logistic_scale, skills_mat=None):
+        assert isinstance(logistic_scale, (float, int))
         self.logistic_scale = logistic_scale
 
         self._validate_match_pred(match_pred)
@@ -220,14 +242,7 @@ class MatchPred:
     def series_df(self):
         """Compute a series data frame."""
         if not hasattr(self, '_series_df', ):
-            skill_diff = self.match_pred.radi_skill - self.match_pred.dire_skill
-            radi_adv = self.match_pred.radi_adv
-            y_pred = (self.win_prob(skill_diff + radi_adv) / 2
-                      + self.win_prob(skill_diff - radi_adv) / 2)
-            self._series_df = \
-                (self.matches.df.assign(pred_win_prob=y_pred)
-                 .groupby('seriesId')
-                 .apply(lambda df: pd.Series(DotaSeries.from_df(df).to_dict())))
+            self._series_df = self._compute_series_df()
         return self._series_df
 
     def win_prob(self, skill_diffs):
@@ -237,7 +252,10 @@ class MatchPred:
         """Create a Plotly figure showing players' skills."""
         plotly_data = []
         for pid in player_ids:
-            match_idx = self.matches.players_mat.loc[:, pid] != 0.0
+            if pid in self.matches.players_mat.columns:
+                match_idx = self.matches.players_mat.loc[:, pid] != 0.0
+            else:
+                match_idx = np.repeat(False, self.matches.players_mat.shape[0])
             player_name = self.matches.players.loc[pid, "name"]
             skills = self.skills_mat.loc[match_idx, pid]
             hovertext = [x + "</br>{}: {:.3f}".format(player_name, s)
@@ -332,16 +350,71 @@ class MatchPred:
                 temp = temp.iloc[iloc]
             else:
                 temp = temp.loc[loc]
-        win_prob_interval = \
-            pd.cut(temp.pred_win_prob, win_prob_breaks, include_lowest=True)
-        grouped = temp.groupby(win_prob_interval)
-        res_df = pd.DataFrame(
-            [pd.Series(
-                win_oe_pval_series(df.pred_win_prob, df.radiantVictory),
-                name=name)
-             for name, df in grouped])
-        res_df.loc[:, "exp_win"] = res_df.loc[:, "exp_win"].round(3)
+        res_df = _win_prob_bias(temp.pred_win_prob, temp.radiantVictory,
+                                win_prob_breaks)
         return res_df
+
+    def series_pred_df_bias(self, win_prob_breaks=np.arange(0.0, 1.1, 0.1),
+                            team_ids=None, iloc=None, loc=None, draw=False):
+        """Compute prediction bias for team 1 series victory.
+
+        Args:
+            win_prob_breaks (array-like): An array of prediction probability
+                breaks for the bins.
+            teams (list): List of teams (team IDs) to return results on.
+            iloc (slice): Subset self.series_df with this slice before computing
+                bias.
+            loc (slice): Subset self.series_df with this slice before computing
+                bias. Ignored if iloc is not None.
+            draw (bool): Compute the draw probability instead of team 1 win
+                probability?
+        """
+        if draw:
+            raise NotImplementedError(
+                "draw=True is not supported yet, since whether a 2-0 match is "
+                "a bo2 or bo3 cannot be inferred.")
+        if iloc is not None:
+            series_df = self.series_df.iloc[iloc]
+        elif loc is not None:
+            series_df = self.series_df.loc[loc]
+        else:
+            series_df = self.series_df
+        is_best_of_even = (series_df.best_of // 2) * 2 == series_df.best_of
+        if draw:
+            series_df = series_df.loc[is_best_of_even]
+        else:
+            series_df = series_df.loc[~is_best_of_even]
+        if team_ids is None:
+            if not draw:
+                output = _win_prob_bias(series_df.team_1_series_win_prob,
+                                        series_df.winner == series_df.team_1,
+                                        win_prob_breaks)
+            else:
+                output = _win_prob_bias(series_df.series_draw_prob,
+                                        series_df.winner.isna(),
+                                        win_prob_breaks)
+        else:
+            output = []
+            for team_id in team_ids:
+                idx = ((series_df.team_1 == team_id)
+                       | (series_df.team_2 == team_id))
+                series_df_f = series_df.loc[idx]
+                if not draw:
+                    win_prob = np.where(
+                        series_df_f.team_1 == team_id,
+                        series_df_f.team_1_series_win_prob,
+                        series_df_f.team_2_series_win_prob)
+                    team_wins = np.where(
+                        series_df_f.team_1 == team_id,
+                        series_df_f.winner == series_df_f.team_1,
+                        series_df_f.winner == series_df_f.team_2)
+                else:
+                    win_prob = series_df_f.series_draw_prob
+                    team_wins = series_df_f.winner.isna()
+                win_prob_bias_df = _win_prob_bias(win_prob, team_wins,
+                                                  win_prob_breaks)
+                output.append((team_id, win_prob_bias_df))
+        return output
 
     def match_loglik(self, assume_side_known=True, team_ids=None):
         if assume_side_known:
@@ -436,6 +509,17 @@ class MatchPred:
             "radi_adv: <b>{:.2f}</b>".format(prediction.radi_adv)
         ])
         return(output)
+
+    def _compute_series_df(self):
+        skill_diff = self.match_pred.radi_skill - self.match_pred.dire_skill
+        radi_adv = self.match_pred.radi_adv
+        y_pred = (self.win_prob(skill_diff + radi_adv) / 2
+                  + self.win_prob(skill_diff - radi_adv) / 2)
+        series_df = \
+            (self.matches.df.assign(pred_win_prob=y_pred)
+             .groupby('seriesId')
+             .apply(lambda df: pd.Series(DotaSeries.from_df(df).to_dict())))
+        return series_df
 
     def _matches_to_hovertext(self):
         """Create hovertext for plotly data points."""
