@@ -1,6 +1,9 @@
+argparse
+dill
+json
 numpy
 pandas
+plotly
 scipy
+scikit-learn
 progressbar2
-dill
-
