@@ -4,6 +4,7 @@
 import json
 import numpy as np
 import pandas as pd
+import scipy.stats
 
 from . import munge
 
@@ -69,7 +70,7 @@ class MatchDF:
     @property
     def players(self):
         if not hasattr(self, '_players'):
-            self._players = self._compute_players()
+            self._players = self._compute_players(self.df)
         return self._players
 
     @property
@@ -83,6 +84,16 @@ class MatchDF:
         if not hasattr(self, '_players_mat'):
             self._players_mat = munge.match_df_to_player_mat(self.df)
         return self._players_mat
+
+    def loc_team(self, team_ids, and_operator=False):
+        """Return a Boolean index for the matches involving given teams."""
+        if and_operator:
+            idx = (self.df.radiant_valveId.isin(team_ids)
+                   & self.df.dire_valveId.isin(team_ids))
+        else:
+            idx = (self.df.radiant_valveId.isin(team_ids)
+                   | self.df.dire_valveId.isin(team_ids))
+        return idx
 
     def _validate_matches_df(self, matches_df):
         expected_columns = [

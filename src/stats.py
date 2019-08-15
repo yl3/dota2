@@ -446,6 +446,39 @@ class MatchPred:
         combined_skills.set_index('team', inplace=True)
         return combined_skills
 
+    def pairwise_win_oe_mat(self, team_ids, assume_side_known=True):
+        """Compute the observed and expected win counts among a group of teams.
+
+        Args:
+            team_ids (iterable): A list of team IDs to consider.
+            assume_side_known (bool): Whether to assume that the side of each
+                team was known beforehand.
+
+        Returns:
+            pandas.DataFrame: A data frame of total matchups between the teams.
+            pandas.DataFrame: A data frame of expected wins between the teams.
+            pandas.DataFrame: A data frame of observed wins between the teams.
+        """
+        idx = self.matches.loc_team(team_ids, and_operator=True)
+        matches_f = self.matches.df.loc[idx]
+        total = (matches_f.groupby(['radiant_name', 'dire_name']).radiantVictory
+                 .size().unstack())
+        wins = (matches_f.groupby(['radiant_name', 'dire_name']).radiantVictory
+                .sum().unstack())
+        if assume_side_known:
+            merged_df = matches_f.merge(self.match_pred[['pred_win_prob']],
+                                        left_index=True, right_index=True)
+            expected = (merged_df.groupby(['radiant_name', 'dire_name'])
+                        .pred_win_prob.sum().unstack())
+        else:
+            merged_df = matches_f.merge(
+                self.match_pred[['pred_win_prob_unknown_side']],
+                left_index=True,
+                right_index=True)
+            expected = (merged_df.groupby(['radiant_name', 'dire_name'])
+                        .pred_win_prob_unknown_side.sum().unstack())
+        return total, expected, wins
+
     def _validate_match_pred(self, match_pred):
         """Validate columns in the match predictions table."""
         expected_columns = sorted([

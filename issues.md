@@ -3,7 +3,7 @@
 ## Open
 
 1. Write classes for exploring data samples easily.
-1. Write a wrapper class for a matches table that performs sanity checks like column names.
+1. Further speed optimisation using `np.einsum()`.
 
 ## Completed
 
@@ -14,6 +14,7 @@
     4. Should write a class to handle Gaussian process prior probability calculation. cls.vec returns the _transformed_ data. cls.loglik returns the current log-likelihood based on _the standard multivariate normal distribution_.
 1. Try a larger scaling factor for the logistic model (i.e. reduce the effect of the multivariate normal prior).
 1. Write a class for storing samples and sets of samples. Refactor code to use this class.
+1. Write a wrapper class for a matches table that performs sanity checks like column names.
 
 ## Abandoned
 
