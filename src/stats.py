@@ -88,7 +88,7 @@ def _prediction_to_plotly_roc_data(y_true, y_pred, name=None):
     return data
 
 
-def _roc_curve_plotly_plot(data):
+def roc_curve_plotly_plot(data):
     """Create a Plotly ROC curve plot.
 
     Args:
@@ -211,7 +211,15 @@ class DotaSeries:
 
 
 class MatchPred:
-    """Class for storing and analysing match predictions."""
+    """Class for storing and analysing match predictions.
+
+    Arguments:
+        matches (MatchDF): A data frame of matches that were trained and/or
+            predicted on.
+        match_pred (pandas.DataFrame): A <matches> x <players> data frame of
+            skill predictions.
+
+    """
 
     def __init__(self, matches, match_pred, logistic_scale, skills_mat=None):
         assert isinstance(logistic_scale, (float, int))
@@ -313,7 +321,7 @@ class MatchPred:
         if side_known:
             y_pred = self.match_pred.pred_win_prob
         else:
-            y_pred = self.match_pred.pred_win_prob_unknown_side
+            y_pred = self.match_pred.nknown_side
         if loc_dict is not None:
             for name, loc in loc_dict.items():
                 trace = _prediction_to_plotly_roc_data(
@@ -327,9 +335,9 @@ class MatchPred:
         else:
             trace = _prediction_to_plotly_roc_data(y_true, y_pred)
             traces.append(trace)
-        return _roc_curve_plotly_plot(traces)
+        return roc_curve_plotly_plot(traces)
 
-    def match_pred_df_bias(self, win_prob_breaks=np.arange(0.0, 1.1, 0.1),
+    def match_pred_df_bias(self, win_prob_breaks=np.linspace(0.0, 1.0, 11),
                            iloc=slice(None), loc=None, assume_side_known=True):
         """Compute prediction bias in a match prediction data frame."""
         if assume_side_known:
@@ -481,7 +489,7 @@ class MatchPred:
 
     def _validate_match_pred(self, match_pred):
         """Validate columns in the match predictions table."""
-        expected_columns = sorted([
+        expected_columns = [
             'startTimestamp',
             'pred_win_prob',
             'win_prob-2sd',
@@ -490,8 +498,8 @@ class MatchPred:
             'radi_skill_sd',
             'dire_skill',
             'dire_skill_sd',
-            'radi_adv'])
-        if not all(match_pred.columns.sort_values() == expected_columns):
+            'radi_adv']
+        if not set(match_pred.columns) == set(expected_columns):
             raise ValueError("Unexpected columns in match_pred.")
 
     def _add_unknown_side_win_prob(self, match_pred):

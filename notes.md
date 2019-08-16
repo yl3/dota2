@@ -1,5 +1,13 @@
 # Notes
 
+## 2019-08-16
+
+**TODO:**
+
+* Hyperparameter optimisation (using BFGS?).
+* Munge and analyse Fairlay data.
+* Manually annotate the `best_of` and stage (group vs playoff) of each series.
+
 ## 2019-08-12
 
 While writing classes to test the first batch of the iterative fitting results, the next things to test through (back)testing are:
