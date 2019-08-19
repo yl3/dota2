@@ -1,5 +1,20 @@
 # Notes
 
+## 2019-08-17
+
+### Decimal odds.
+
+Let the *ask* price be $\alpha > 1$. This means that when playing 1 unit, the reward if the selected runner wins is $\alpha$. This is a breakeven bet when $p_{\text{win}} \times (\alpha - 1) = 1 - p_{\text{win}} \iff 1 = p_{\text{win}} \alpha \iff p_{\text{win}} = 1 / \alpha$.
+
+When the *bid* price is $\beta > 1$, it means that for a 1 unit wager on a runner, the accepter of the bid agrees to pay $\beta - 1$ if the selected runner wins. Equivalently, for paying (i.e. losing) 1 units if the runner wins, the accepted bidding amount is $o = 1 / (\beta - 1)$.
+
+Wager amount | Change if runner wins | Change if runner loses
+:-----------:|:---------------------:|:---------------------:
+$\beta$      | $- (\beta - 1)$       | $+1$
+$1 / \beta$  | $- 1$                 | $+1 / (\beta - 1)$
+
+Thus, the equivalent decimal odds for wagering 1 units against the runner is $1 + \frac{1}{\beta - 1} = \frac{\beta - 1 + 1}{\beta - 1} = \frac{\beta}{\beta - 1}$.
+
 ## 2019-08-16
 
 **TODO:**

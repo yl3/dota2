@@ -87,7 +87,7 @@ class MatchDF:
             self._players_mat = munge.match_df_to_player_mat(self.df)
         return self._players_mat
 
-    def loc_team(self, team_ids, and_operator=False):
+    def loc_team(self, *team_ids, and_operator=False):
         """Return a Boolean index for the matches involving given teams."""
         if and_operator:
             idx = (self.df.radiant_valveId.isin(team_ids)

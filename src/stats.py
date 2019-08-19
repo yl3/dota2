@@ -78,11 +78,6 @@ def win_oe_pval_series(win_probs, outcomes):
 def _prediction_to_plotly_roc_data(y_true, y_pred, name=None):
     """Return a Plotly data object for plotting a ROC curve."""
     fpr, tpr, thres = sklearn.metrics.roc_curve(y_true, y_pred)
-    auc = sklearn.metrics.roc_auc_score(y_true, y_pred)
-    if name is None:
-        name = "AUC: {:.3f}".format(auc)
-    else:
-        name = name + " ({:.3f})".format(auc)
     data = plotly_go.Scatter(x=fpr, y=tpr, mode='lines', name=name,
                              showlegend=True, hovertext=np.round(thres, 3))
     return data
@@ -321,19 +316,22 @@ class MatchPred:
         if side_known:
             y_pred = self.match_pred.pred_win_prob
         else:
-            y_pred = self.match_pred.nknown_side
+            y_pred = self.match_pred.unknown_side
         if loc_dict is not None:
             for name, loc in loc_dict.items():
+                name += f", AUC: {self._roc_auc(side_known, loc=loc)}"
                 trace = _prediction_to_plotly_roc_data(
                     y_true[loc], y_pred[loc], name)
                 traces.append(trace)
         elif iloc_dict is not None:
             for name, iloc in iloc_dict.items():
+                name += f", AUC: {self._roc_auc(side_known, iloc=iloc)}"
                 trace = _prediction_to_plotly_roc_data(
                     y_true.iloc[iloc], y_pred.iloc[iloc], name)
                 traces.append(trace)
         else:
-            trace = _prediction_to_plotly_roc_data(y_true, y_pred)
+            name = f"AUC: self._roc_auc(side_known)"
+            trace = _prediction_to_plotly_roc_data(y_true, y_pred, name)
             traces.append(trace)
         return roc_curve_plotly_plot(traces)
 
@@ -577,6 +575,19 @@ class MatchPred:
                           np.where(radi_win, "triangle-down-open",
                                    "triangle-up-open"))
         return symbol
+
+    def _roc_auc(self, side_known, loc=None, iloc=None):
+        y_true = self.matches.df.radiantVictory
+        if side_known:
+            y_pred = self.match_pred.pred_win_prob
+        else:
+            y_pred = self.match_pred.pred_win_prob_unknown_side
+        if loc is not None:
+            y_true, y_pred = (y_true[loc], y_pred[loc])
+        elif iloc is not None:
+            y_true, y_pred = (y_true.iloc[iloc], y_pred.iloc[iloc])
+        auc = sklearn.metrics.roc_auc_score(y_true, y_pred)
+        return auc
 
     def _match_data_to_graph_obj(self, time, y, is_radi, radi_win, hovertext,
                                  name=None):
