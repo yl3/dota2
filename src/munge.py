@@ -32,7 +32,7 @@ def player_id_to_player_name(player_ids, player_names, team_ids, team_names):
             "team_id": np.repeat(team_ids.values, [5] * len(team_ids))
         },
         index=itertools.chain.from_iterable(list(player_ids)))
-    return output_series[~output_series.index.duplicated(keep='first')]
+    return output_series[~output_series.index.duplicated(keep='last')]
 
 
 def match_df_to_player_mat(match_df):
@@ -53,3 +53,15 @@ def match_df_to_player_df(match_df):
         pd.concat([match_df.radiant_valveId, match_df.dire_valveId]),
         pd.concat([match_df.radiant_name, match_df.dire_name]))
     return players
+
+
+def match_df_to_team_series(match_df):
+    """Convert a match data frame into a teams data frame.
+
+    A match data frame is (for example) an output of `src.load.all_matches_df`.
+    """
+    team_names = pd.concat([match_df.radiant_name, match_df.dire_name])
+    team_ids = pd.concat([match_df.radiant_valveId, match_df.dire_valveId])
+    teams = pd.Series(team_names.values, index=team_ids.values)
+    teams = teams.loc[~teams.index.duplicated(keep='last')]
+    return teams

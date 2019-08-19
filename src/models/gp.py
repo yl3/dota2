@@ -135,7 +135,6 @@ class SkillsGP:
         assert all(np.nansum(np.abs(players_mat), 1) == 10)
         assert all(np.nansum(players_mat, 1) == 0)  # 5 a side?
         assert isinstance(players_mat, pd.DataFrame)
-        assert all(start_times == sorted(start_times))
 
         # Save basic data.
         self.players_mat = players_mat
@@ -514,7 +513,6 @@ class SkillsGPMAP(SkillsGP):
         Impute the initial skills based on the currently fitted results.
         """
         concatenated_times = np.concatenate([self.start_times, start_times])
-        assert all(concatenated_times == sorted(concatenated_times))
 
         # A (ultimately row) vector of imputed skills per player.
         imputed_skills_of_player = []

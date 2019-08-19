@@ -1,5 +1,66 @@
 # Notes
 
+## 2019-08-17
+
+### Decimal odds.
+
+Let the *ask* price be $\alpha > 1$. This means that when playing 1 unit, the reward if the selected runner wins is $\alpha$. This is a breakeven bet when $p_{\text{win}} \times (\alpha - 1) = 1 - p_{\text{win}} \iff 1 = p_{\text{win}} \alpha \iff p_{\text{win}} = 1 / \alpha$.
+
+When the *bid* price is $\beta > 1$, it means that for a 1 unit wager on a runner, the accepter of the bid agrees to pay $\beta - 1$ if the selected runner wins. Equivalently, for paying (i.e. losing) 1 units if the runner wins, the accepted bidding amount is $o = 1 / (\beta - 1)$.
+
+Wager amount | Change if runner wins | Change if runner loses
+:-----------:|:---------------------:|:---------------------:
+$\beta$      | $- (\beta - 1)$       | $+1$
+$1 / \beta$  | $- 1$                 | $+1 / (\beta - 1)$
+
+Thus, the equivalent decimal odds for wagering 1 units against the runner is $1 + \frac{1}{\beta - 1} = \frac{\beta - 1 + 1}{\beta - 1} = \frac{\beta}{\beta - 1}$.
+
+## 2019-08-16
+
+**TODO:**
+
+* Hyperparameter optimisation (using BFGS?).
+* Munge and analyse Fairlay data.
+* Manually annotate the `best_of` and stage (group vs playoff) of each series.
+
+## 2019-08-12
+
+While writing classes to test the first batch of the iterative fitting results, the next things to test through (back)testing are:
+
+1. The optimal MCMC proposal parameters to get close to around 0.234 acceptance rate.
+    1. Use the full 5,000 match dataset, iteratively find MAP then test different MCMC parameters. Record acceptance rates and the fitted models.
+2. Whether using fewer training matches severely deteriorates AUC, likelihood or precision when performing backtesting.
+    1. Test the AUC, likelihood and precision of the predictions for the final 1,000 matches (fitted iteratively using Newton-CG) when trained with an initial 1,000, 2,000, 3,000 or 4,000 matches.
+
+## 2019-08-11
+
+Now that we have some basic match backtesting functionality, we just need some series-level backtesting.
+
+1. Firstly, we need to see if a single skill level variable can really determine victory probability, or whether there are non-linear interactions between teams (for instance such that they beat each other in a circular way). To test this, we need to compute match-level pairwise expected and observed win counts between teams.
+2. Secondly, we need to start computing series-level outcome probabilities given match-level win probabilities.
+
+- First match of a series updates the probabilities. Thus, the chance of a 2-0 win becomes more extreme towards the first match's winner.
+- We need to sample the posterior to fully capture above.
+
+**TODO next:** match outcome probability bias and AUC.
+
+## 2019-08-10
+
+Spec'ing out the plotting functionality. Use cases:
+
+1. Plotting one or multiple players or one or multiple teams in one plot (time vs skill).
+    1. Marker time is circle if Radiant, triangle if Dire.
+    2. Marker is filled if a match is won, or empty otherwise.
+    3. Teams and players are colored individually.
+2. Plotting observed and expected log-likelihood in one plot.
+3. All data points must also include line segments for +- 2 sd.
+4. On hover, all data points show the respective match information.
+    1. Match ID.
+    2. Radiant and Dire team names.
+    3. Radiant and Dire player names.
+    4. Player skill and +- 2 sds.
+5. Legend shows the player or team IDs (label of each data series).
+
 ## 2019-08-09
 
 TODO:

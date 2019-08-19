@@ -2,7 +2,7 @@ argparse
 dill
 json
 numpy
-pandas
+pandas>=0.25.0
 plotly
 scipy
 scikit-learn
