@@ -48,6 +48,10 @@ def matches_json_to_df(matches_json):
         [col_names, matches_df.columns[~matches_df.columns.isin(col_names)]])
     matches_df = matches_df.loc[:, cols]
     matches_df.sort_values('startDate', inplace=True)
+
+    # Strip all string columns.
+    for colname in ['league_name', 'radiant_name', 'dire_name']:
+        matches_df[colname] = matches_df[colname].str.strip()
     return matches_df
 
 
