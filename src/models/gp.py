@@ -3,7 +3,6 @@
 
 import copy
 import itertools
-import math
 import numpy as np
 import pandas as pd
 import progressbar
@@ -140,6 +139,8 @@ class SkillsGP:
         self.players_mat = players_mat
         self.M, self.N = players_mat.shape
         self.start_times = start_times
+        if isinstance(self.start_times, pd.Series):
+            self.start_times = self.start_times.values
         self.radiant_win = np.where(radiant_win, 1, 0)
         self.cov_func_name = cov_func_name
         self.cov_func_kwargs = cov_func_kwargs
@@ -340,13 +341,10 @@ class SkillsGPMAP(SkillsGP):
             self._initial_radi_adv = 0.0
         self.fitted = None
 
-    def fit(self, initial_skills=None, initial_radi_adv=0.0, print_fit=False):
+    def fit(self, print_fit=False):
         """Perform a Newton-Raphson fit of the model.
 
         Args:
-            initial_skills (numpy.ndarray): A 1D array of skills of each player
-                in each match. Default: every player's skills start from 0.0.
-            initial_radi_adv (float): Initial Radiant advantage.
             print_fit (bool): Whether to print the fitted results.
 
         Returns:
@@ -386,6 +384,47 @@ class SkillsGPMAP(SkillsGP):
 
         if print_fit:
             print(self.fitted)
+
+    def fitted_skills_mat(self):
+        if self.fitted is None:
+            raise ValueError("Please fit the model using self.fit() first.")
+        skills_mat = self.skills_mat(self.fitted.x[:-1])
+        return skills_mat
+
+    @property
+    def fitted_skills_vec(self):
+        return self.fitted.x[:-1]
+
+    @property
+    def fitted_radi_adv(self):
+        if self.fitted is None:
+            raise ValueError("Please fit the model using self.fit() first.")
+        return self.fitted.x[-1]
+
+    def fitted_pred_df(self):
+        """Compute fitted per-match win probabilities.
+
+        Returns:
+            pandas.DataFrame: A data frame of predicted Radiant team win
+                probability, predicted Radiant skill, predicted Dire skill,
+                predicted Radiant win probabilities (without knowing team sides
+                beforehand) and predicted Radiant advantage. The data frame is
+                indexed by the index of players mat.
+        """
+        radi_skills = self.match_team_skills(self.fitted_skills_vec)
+        dire_skills = self.match_team_skills(self.fitted_skills_vec, "dire")
+        radi_adv = self.fitted_radi_adv
+        pred_win_prob = self.win_prob(radi_skills + radi_adv - dire_skills)
+        pred_win_prob_unknown_side = \
+            (pred_win_prob
+             + self.win_prob(radi_skills - radi_adv - dire_skills)) / 2
+        data = {
+            'pred_win_prob': pred_win_prob,
+            'radi_skill': radi_skills,
+            'dire_skill': dire_skills,
+            'pred_win_prob_unknown_side': pred_win_prob_unknown_side
+        }
+        return pd.DataFrame(data, index=self.players_mat.index)
 
     def predict(self, new_times, player_ids, as_df=True):
         """Predict skills at a new timepoint.
@@ -469,16 +508,16 @@ class SkillsGPMAP(SkillsGP):
                 same unit as `self.start_times` for the new matches.
 
         Returns:
-            pred: A data frame of predicted Radiant team win probability, 2.5%
-                win probability confidence interval, 97.5% win probability
-                confidence interval, predicted Radiant skill, Radiant skill
-                standard deviation, predicted Dire skill, Dire skill standard
-                deviation, predicted Radiant advantage. The data frame is
-                indexed by
-            mu_mat (pandas.DataFrame): A len(start_times) by
-                len(radiant_players) data frame of player skills.
-            var_mat (numpy.ndarray): A len(start_times) by len(radiant_players)
-                data frame of player skill variances.
+            pandas.DataFrame: A data frame of predicted Radiant team win
+                probability, 2.5% win probability confidence interval, 97.5% win
+                probability confidence interval, predicted Radiant skill,
+                Radiant skil standard deviation, predicted Dire skill, Dire
+                skill standard deviation, predicted Radiant advantage. The data
+                frame is indexed by `start_times`.
+            pandas.DataFrame: A len(start_times) by len(radiant_players) data
+                frame of player skills.
+            pandas.DataFrame: A len(start_times) by len(radiant_players) data
+                frame of player skill variances.
         """
         mu_mat, var_mat = self.predict_skills_mat(radiant_players, dire_players,
                                                   start_times)
@@ -539,7 +578,7 @@ class SkillsGPMAP(SkillsGP):
 
         # Create the extended player and skills matrices.
         new_players_mat = self.players_mat.append(players_mat).fillna(0.0)
-        fitted_skills_mat = self.skills_mat(self.fitted.x[:-1])
+        fitted_skills_mat = self.fitted_skills_mat()
         new_skills_mat = fitted_skills_mat.append(
             pd.DataFrame(imputed_skills_mat, index=players_mat.index,
                          columns=players_mat.columns))

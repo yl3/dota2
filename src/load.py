@@ -69,6 +69,11 @@ class MatchDF:
         self.df = matches_df
         self.df = self._preprocess_matches_df(self.df)
 
+    def from_json(matches_json):
+        """Create a MatchDF object from a Datdota matches JSON object."""
+        matches_df = matches_json_to_df(matches_json)
+        return MatchDF(matches_df)
+
     @property
     def players(self):
         if not hasattr(self, '_players'):

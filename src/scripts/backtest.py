@@ -3,6 +3,7 @@
 
 import argparse
 import datetime
+import gzip
 import itertools
 import json
 import os
@@ -39,8 +40,9 @@ def parse_args():
     parser.add_argument("--radi_prior_sd", type=float, default=10.0,
                         help="Standard deviation of the Radiant advantage "
                              "prior Gaussian distribution.")
-    parser.add_argument("--chunk_size", type=int, default=1,
-                        help="Chunk size for iterative Newton-CG. Default: 1.")
+    help = ("Chunk size for iterative Newton-CG. If not provided, then fitted "
+            "match by match.")
+    parser.add_argument("--chunk_size", type=int, help=help)
     args = parser.parse_args()
     args.scale *= 365 * 24 * 60 * 60 * 1000
     return args
@@ -48,8 +50,12 @@ def parse_args():
 
 def load_matches(json_file):
     """Load the JSON file into a matches data frame."""
-    with open(json_file) as fh:
-        matches = load.matches_json_to_df(json.load(fh)['data'])
+    if json_file.endswith(".gz"):
+        with gzip.open(json_file, 'rb') as fh:
+            matches = load.matches_json_to_df(json.load(fh)['data'])
+    else:
+        with open(json_file) as fh:
+            matches = load.matches_json_to_df(json.load(fh)['data'])
     return matches
 
 
@@ -93,6 +99,22 @@ def _chunk_matches(series_list, chunk_size):
     return output_series_dfs
 
 
+def _produce_match_groups(match_df, chunk_size):
+    """Produce an iterable of match groups for iterative fitting.
+
+    If chunk_size is None, then produce a list of matches individually as
+    opposed to series by series.
+    """
+    if chunk_size is None:
+        match_groups = \
+            [x[1] for x in match_df.groupby(list(range(match_df.shape[0])))]
+    else:
+        series_list = \
+            [x[1] for x in match_df.groupby('series_start_time')]
+        match_groups = _chunk_matches(series_list, chunk_size)
+    return match_groups
+
+
 def iterative_newton_fitter(matches, args):
     """Iterative Newton-CG fitter.
 
@@ -122,13 +144,14 @@ def iterative_newton_fitter(matches, args):
     sys.stderr.write(
         f"[{_cur_time()}] Fitting the {args.training_matches} matches.\n")
     gp_model.fit()
+    initial_pred_df = gp_model.fitted_pred_df()
+    initial_skills_mat = gp_model.fitted_skills_mat()
+    if args.test_matches == 0:
+        return initial_pred_df, initial_skills_mat, None, None, None
 
     # Iteratively predict and refit the model.
     test_matches = matches.iloc[args.training_matches:]
-    test_match_groups = [x[1]
-                         for x in test_matches.groupby('series_start_time')]
-    # Create larger chunks of series for fitting.
-    test_match_groups = _chunk_matches(test_match_groups, args.chunk_size)
+    test_match_groups = _produce_match_groups(test_matches, args.chunk_size)
     predictions = []
     mu_mats = []
     var_mats = []
@@ -178,7 +201,7 @@ def iterative_newton_fitter(matches, args):
     predictions_df = pd.concat(predictions)
     mu_df = pd.concat(mu_mats)
     var_df = pd.concat(var_mats)
-    return predictions_df, mu_df, var_df
+    return initial_pred_df, initial_skills_mat, predictions_df, mu_df, var_df
 
 
 def main():
@@ -187,10 +210,16 @@ def main():
     # Perform checks and compute series start times.
     matches = load.MatchDF(matches).df
     if args.method == 'newton':
-        predictions, mu_df, var_df = iterative_newton_fitter(matches, args)
-        predictions.to_csv(args.output_prefix + ".win_probs", sep="\t")
-        mu_df.to_csv(args.output_prefix + ".player_skills", sep="\t")
-        var_df.to_csv(args.output_prefix + ".player_skill_vars", sep="\t")
+        initial_predictions, initial_skills_mat, predictions, mu_df, var_df = \
+            iterative_newton_fitter(matches, args)
+        initial_predictions.to_csv(args.output_prefix + ".initial_win_probs",
+                                   sep="\t")
+        initial_skills_mat.to_csv(args.output_prefix + ".initial_player_skills",
+                                  sep="\t")
+        if predictions is not None:
+            predictions.to_csv(args.output_prefix + ".win_probs", sep="\t")
+            mu_df.to_csv(args.output_prefix + ".player_skills", sep="\t")
+            var_df.to_csv(args.output_prefix + ".player_skill_vars", sep="\t")
 
 
 if __name__ == "__main__":
