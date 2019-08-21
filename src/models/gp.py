@@ -493,12 +493,15 @@ class SkillsGPMAP(SkillsGP):
         skill_diff = radi_skill - dire_skill + radi_adv
         skill_diff_sd = np.sqrt(var_mat.sum(1))
         pred_win_prob = self.win_prob(skill_diff)
+        pred_win_prob_unknown_side = \
+            (pred_win_prob + self.win_prob(skill_diff - 2 * radi_adv)) / 2
         win_prob_low_bound = self.win_prob(skill_diff - 2 * skill_diff_sd)
         win_prob_high_bound = self.win_prob(skill_diff + 2 * skill_diff_sd)
         pred_df = pd.DataFrame(
             {'pred_win_prob': pred_win_prob,
              'win_prob-2sd': win_prob_low_bound,
              'win_prob+2sd': win_prob_high_bound,
+             'pred_win_prob_unknown_side': pred_win_prob_unknown_side,
              'radi_skill': radi_skill,
              'radi_skill_sd': radi_skill_sd,
              'dire_skill': dire_skill,
