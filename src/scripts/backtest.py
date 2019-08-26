@@ -199,6 +199,13 @@ def iterative_newton_fitter(matches, args):
         if matches_fitted >= args.test_matches:
             break
     predictions_df = pd.concat(predictions)
+    # Compute the column for win probability without a known side.
+    skill_diff_side_reversed = (predictions_df.radi_skill
+                                - predictions_df.dire_skill
+                                - predictions_df.radi_adv)
+    predictions_df['pred_win_prob_unknown_side'] = \
+        (predictions_df.pred_win_prob
+         + gp_model.win_prob(skill_diff_side_reversed)) / 2
     mu_df = pd.concat(mu_mats)
     var_df = pd.concat(var_mats)
     return initial_pred_df, initial_skills_mat, predictions_df, mu_df, var_df
