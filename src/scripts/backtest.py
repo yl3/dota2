@@ -145,6 +145,7 @@ def iterative_newton_fitter(matches, args):
         f"[{_cur_time()}] Fitting the {args.training_matches} matches.\n")
     gp_model.fit()
     initial_pred_df = gp_model.fitted_pred_df()
+    initial_pred_df['iter'] = 0
     initial_skills_mat = gp_model.fitted_skills_mat()
     if args.test_matches == 0:
         return initial_pred_df, initial_skills_mat, None, None, None
@@ -156,6 +157,7 @@ def iterative_newton_fitter(matches, args):
     mu_mats = []
     var_mats = []
     matches_fitted = 0
+    iter = 1
     for match_grp in test_match_groups:
         msg = (f"[{_cur_time()}] So far predicted: {matches_fitted} matches. "
                f"Predicting matches {list(match_grp.index)} "
@@ -174,6 +176,7 @@ def iterative_newton_fitter(matches, args):
             var_mat.index = predicted.index
             mu_mats.append(mu_mat)
             var_mats.append(var_mat)
+            predicted['iter'] = iter
             predictions.append(predicted)
         except Exception as e:
             sys.stderr.write(
@@ -198,6 +201,7 @@ def iterative_newton_fitter(matches, args):
         matches_fitted += match_grp.shape[0]
         if matches_fitted >= args.test_matches:
             break
+        iter += 1
     predictions_df = pd.concat(predictions)
     # Compute the column for win probability without a known side.
     skill_diff_side_reversed = (predictions_df.radi_skill
