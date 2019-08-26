@@ -422,7 +422,8 @@ class SkillsGPMAP(SkillsGP):
             'pred_win_prob': pred_win_prob,
             'radi_skill': radi_skills,
             'dire_skill': dire_skills,
-            'pred_win_prob_unknown_side': pred_win_prob_unknown_side
+            'pred_win_prob_unknown_side': pred_win_prob_unknown_side,
+            'radi_adv': np.repeat(self.fitted_radi_adv, len(pred_win_prob))
         }
         return pd.DataFrame(data, index=self.players_mat.index)
 
