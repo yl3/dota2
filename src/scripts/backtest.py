@@ -212,7 +212,9 @@ def iterative_newton_fitter(matches, args):
          + gp_model.win_prob(skill_diff_side_reversed)) / 2
     mu_df = pd.concat(mu_mats)
     var_df = pd.concat(var_mats)
-    return initial_pred_df, initial_skills_mat, predictions_df, mu_df, var_df
+    pred_df = pd.concat([initial_pred_df, predictions_df], sort=True)
+    skills_mat = pd.concat([initial_skills_mat, mu_df], sort=True)
+    return pred_df, skills_mat, var_df
 
 
 def main():
@@ -221,16 +223,10 @@ def main():
     # Perform checks and compute series start times.
     matches = load.MatchDF(matches).df
     if args.method == 'newton':
-        initial_predictions, initial_skills_mat, predictions, mu_df, var_df = \
-            iterative_newton_fitter(matches, args)
-        initial_predictions.to_csv(args.output_prefix + ".initial_win_probs",
-                                   sep="\t")
-        initial_skills_mat.to_csv(args.output_prefix + ".initial_player_skills",
-                                  sep="\t")
-        if predictions is not None:
-            predictions.to_csv(args.output_prefix + ".win_probs", sep="\t")
-            mu_df.to_csv(args.output_prefix + ".player_skills", sep="\t")
-            var_df.to_csv(args.output_prefix + ".player_skill_vars", sep="\t")
+        predictions, skills_mat, var_df = iterative_newton_fitter(matches, args)
+        predictions.to_csv(args.output_prefix + ".win_probs", sep="\t")
+        skills_mat.to_csv(args.output_prefix + ".player_skills", sep="\t")
+        var_df.to_csv(args.output_prefix + ".player_skill_vars", sep="\t")
 
 
 if __name__ == "__main__":
