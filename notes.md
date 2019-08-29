@@ -1,5 +1,52 @@
 # Notes
 
+## 2019-08-29
+
+Manual inspection of the TI9 group stage data shows that the top predicted EV events are the biggest losers. We are currently predicting roughly even win probabilities too often when games should be more one-sided. Of 20 highest predicted EV maps, the total expected EV is 25 but the observed outcome is -14.
+
+Thus, either the strength of regularisation should be decreased (i.e. lower logistic scale) or the strength of autocorrelation should be decreased (i.e. lower covariance function scale).
+
+## 2019-08-23
+
+TODO:
+
+* Refactor so that predicting of a second `MatchDF` is possible in `MatchDF` itself.
+* Refactor to speed up the code using numba.
+* Backtest different prior SD and logistic scale parameters.
+* Count the number of matches played until a certain match in MatchDF. When backtesting, only consider matches where players have been trained with at least 10-20 matches.
+
+### Checking the difference between Fairlay betting closing times and match start times.
+
+The times are for their TI9 group stage matches
+
+* Secret vs Alliance
+    * was scheduled to start August 14, 2019 - 22:00 EDT.
+    * The actual start time was recorded as 2019-08-14 22:03:30 EDT.
+    * At open, the closing time was set to 2019-08-14 21:00:00 EDT.
+    * During the game, the closing time was updated to 2019-08-14 23:00:00 EDT.
+    * Finally, the closing date was set to 2019-08-15 02:00:00 EDT.
+* Secret vs Newbee
+    * Scheduled to start August 15, 2019 - 03:30 EDT.
+    * Starting time recorded as 2019-08-15 7:49:08 UTC.
+    * Initial closing date was set to 2019-08-15 02:00:00 EDT.
+    * Over the game, closing date for map 1 and series spread was revised to 2019-08-15 03:00:00 EDT, then to 4:30 and even 6:30 EDT.
+    * Weirdly, the final closing date for map 1 and match spread was 2019-08-16 03:00:00 EDT, whereas the final closing date for map 2 was 2019-08-15 10:37:21 EDT.
+* Navi vs Infamous
+    * Scheduled to start August 15, 2019 - 21:00 EDT.
+    * Recorded as started on at 2019-08-15 21:18:14 EDT.
+    * The initial closing date was set to 2019-08-15 21:00:00 EDT.
+    * Over time, the closing date for each match/series market was updated to as late as 2019-08-16 02:00:00 EDT.
+
+Thus, the initial close time seems to always be the series start time (even for markets of map 2 onwards). The final closing time is typically 3-4 hours after the start of the series.
+
+## 2019-08-22
+
+**Why does Fnatic's skill decrease after its first win against EG?**
+
+## 2019-08-20
+
+TODO: refactor `src.stats.MatchPred` to contain a `src.stats.MatchPred.df` that has the matches and predictions merged.
+
 ## 2019-08-17
 
 ### Decimal odds.
