@@ -1,5 +1,19 @@
 # Notes
 
+## 2019-08-31
+
+TODO:
+
+* Run a new set of experiments for the full TI9 dataset with different prior SDs.
+* Plot team skills over TI9.
+* Compute the confidence intervals for the betting EVs.
+
+## 2019-08-30
+
+### Manual checking of the map to Fairlay matching.
+
+* Hard to match 'Infamous' with 'Infamous Gaming'. Ignore for now.
+
 ## 2019-08-29
 
 Manual inspection of the TI9 group stage data shows that the top predicted EV events are the biggest losers. We are currently predicting roughly even win probabilities too often when games should be more one-sided. Of 20 highest predicted EV maps, the total expected EV is 25 but the observed outcome is -14.
