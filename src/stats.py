@@ -345,10 +345,8 @@ class WinProbDict:
     def _utc_localise_time(self, time):
         """Make sure time is a UTC-localised Pandas series."""
         new_time = pd.to_datetime(pd.Series(time))
-        if new_time.dt.tz is None:
-            new_time = new_time.dt.tz_localize('UTC')
-        else:
-            new_time = new_time.dt.tz_convert('UTC')
+        if new_time.dt.tz is not None:
+            new_time = new_time.dt.tz_convert(None)
         return new_time
 
 
