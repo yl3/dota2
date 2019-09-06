@@ -3,6 +3,7 @@
 
 import argparse
 import datetime
+import gzip
 import itertools
 import json
 import os
@@ -39,8 +40,9 @@ def parse_args():
     parser.add_argument("--radi_prior_sd", type=float, default=10.0,
                         help="Standard deviation of the Radiant advantage "
                              "prior Gaussian distribution.")
-    parser.add_argument("--chunk_size", type=int, default=1,
-                        help="Chunk size for iterative Newton-CG. Default: 1.")
+    help = ("Chunk size for iterative Newton-CG. If not provided, then fitted "
+            "match by match.")
+    parser.add_argument("--chunk_size", type=int, help=help)
     args = parser.parse_args()
     args.scale *= 365 * 24 * 60 * 60 * 1000
     return args
@@ -48,8 +50,12 @@ def parse_args():
 
 def load_matches(json_file):
     """Load the JSON file into a matches data frame."""
-    with open(json_file) as fh:
-        matches = load.matches_json_to_df(json.load(fh)['data'])
+    if json_file.endswith(".gz"):
+        with gzip.open(json_file, 'rb') as fh:
+            matches = load.matches_json_to_df(json.load(fh)['data'])
+    else:
+        with open(json_file) as fh:
+            matches = load.matches_json_to_df(json.load(fh)['data'])
     return matches
 
 
@@ -93,6 +99,22 @@ def _chunk_matches(series_list, chunk_size):
     return output_series_dfs
 
 
+def _produce_match_groups(match_df, chunk_size):
+    """Produce an iterable of match groups for iterative fitting.
+
+    If chunk_size is None, then produce a list of matches individually as
+    opposed to series by series.
+    """
+    if chunk_size is None:
+        match_groups = \
+            [x[1] for x in match_df.groupby(list(range(match_df.shape[0])))]
+    else:
+        series_list = \
+            [x[1] for x in match_df.groupby('series_start_time')]
+        match_groups = _chunk_matches(series_list, chunk_size)
+    return match_groups
+
+
 def iterative_newton_fitter(matches, args):
     """Iterative Newton-CG fitter.
 
@@ -122,17 +144,20 @@ def iterative_newton_fitter(matches, args):
     sys.stderr.write(
         f"[{_cur_time()}] Fitting the {args.training_matches} matches.\n")
     gp_model.fit()
+    initial_pred_df = gp_model.fitted_pred_df()
+    initial_pred_df['iter'] = 0
+    initial_skills_mat = gp_model.fitted_skills_mat()
+    if args.test_matches == 0:
+        return initial_pred_df, initial_skills_mat, None, None, None
 
     # Iteratively predict and refit the model.
     test_matches = matches.iloc[args.training_matches:]
-    test_match_groups = [x[1]
-                         for x in test_matches.groupby('series_start_time')]
-    # Create larger chunks of series for fitting.
-    test_match_groups = _chunk_matches(test_match_groups, args.chunk_size)
+    test_match_groups = _produce_match_groups(test_matches, args.chunk_size)
     predictions = []
     mu_mats = []
     var_mats = []
     matches_fitted = 0
+    iter = 1
     for match_grp in test_match_groups:
         msg = (f"[{_cur_time()}] So far predicted: {matches_fitted} matches. "
                f"Predicting matches {list(match_grp.index)} "
@@ -151,6 +176,7 @@ def iterative_newton_fitter(matches, args):
             var_mat.index = predicted.index
             mu_mats.append(mu_mat)
             var_mats.append(var_mat)
+            predicted['iter'] = iter
             predictions.append(predicted)
         except Exception as e:
             sys.stderr.write(
@@ -175,10 +201,20 @@ def iterative_newton_fitter(matches, args):
         matches_fitted += match_grp.shape[0]
         if matches_fitted >= args.test_matches:
             break
+        iter += 1
     predictions_df = pd.concat(predictions)
+    # Compute the column for win probability without a known side.
+    skill_diff_side_reversed = (predictions_df.radi_skill
+                                - predictions_df.dire_skill
+                                - predictions_df.radi_adv)
+    predictions_df['pred_win_prob_unknown_side'] = \
+        (predictions_df.pred_win_prob
+         + gp_model.win_prob(skill_diff_side_reversed)) / 2
     mu_df = pd.concat(mu_mats)
     var_df = pd.concat(var_mats)
-    return predictions_df, mu_df, var_df
+    pred_df = pd.concat([initial_pred_df, predictions_df], sort=True)
+    skills_mat = pd.concat([initial_skills_mat, mu_df], sort=True)
+    return pred_df, skills_mat, var_df
 
 
 def main():
@@ -187,9 +223,9 @@ def main():
     # Perform checks and compute series start times.
     matches = load.MatchDF(matches).df
     if args.method == 'newton':
-        predictions, mu_df, var_df = iterative_newton_fitter(matches, args)
+        predictions, skills_mat, var_df = iterative_newton_fitter(matches, args)
         predictions.to_csv(args.output_prefix + ".win_probs", sep="\t")
-        mu_df.to_csv(args.output_prefix + ".player_skills", sep="\t")
+        skills_mat.to_csv(args.output_prefix + ".player_skills", sep="\t")
         var_df.to_csv(args.output_prefix + ".player_skill_vars", sep="\t")
 
 

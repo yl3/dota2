@@ -205,6 +205,151 @@ class DotaSeries:
             1 - self.team_1_series_win_prob - self.series_draw_prob
 
 
+class WinProbDict:
+    """
+    A helper class for querying a match data frame using inexact
+    timestamps.
+
+    Internally, the time index is stored as UTC and the team names are stored
+    as lower case values.
+
+    Args:
+        team_1 (array-like): A 1D-array of team 1 identifiers or names.
+        team_2 (array-like): A 1D-array of team 2 identifiers or names.
+        map_i (int): Zero-based index of the current map in the series.
+        time (numpy.datetime64): The start time of each map.
+        win_prob (array-like): A 1D-array of team 1 win probability of each
+            map.
+        outcome (array-like): A 1D array of whether team 1 was victorious in
+            each map.
+    """
+    # Internally, the win probabilities are stored in a dictionary of
+    # (team_1, team_2, map_index) -> DataFrame, where the data frame is indexed
+    # by datetime. team_1 and team_2 are normalised such that team_1 <= team_2.
+
+    def __init__(self, team_1, team_2, map_i, time, win_prob, outcome):
+        self.data = {}
+        team_1 = pd.Series(team_1).str.lower()
+        team_2 = pd.Series(team_2).str.lower()
+        norm_team_1 = np.where(team_1 <= team_2, team_1, team_2)
+        norm_team_2 = np.where(team_1 <= team_2, team_2, team_1)
+        norm_win_prob = np.where(team_1 <= team_2, win_prob, 1 - win_prob)
+        norm_outcome = np.where(team_1 <= team_2, outcome, ~outcome)
+        time = self._utc_localise_time(time)
+        temp_df = pd.DataFrame(
+            {'team_1': norm_team_1, 'team_2': norm_team_2, 'map_i': map_i,
+             'win_prob': norm_win_prob, 'outcome': norm_outcome, 'time': time})
+        temp_df.set_index('time', inplace=True)
+        for key, sub_df in temp_df.groupby(['team_1', 'team_2', 'map_i']):
+            self.data[key] = sub_df
+
+    def from_match_pred(match_pred_obj, assume_side_known=False):
+        """Initialise from a MatchPred object."""
+        if not isinstance(match_pred_obj, MatchPred):
+            raise TypeError('match_pred_obj is not an object of MatchPred.')
+        if assume_side_known:
+            output = WinProbDict(match_pred_obj.df.radiant_name,
+                                 match_pred_obj.df.dire_name,
+                                 match_pred_obj.df.match_i_in_series,
+                                 match_pred_obj.df.startDate,
+                                 match_pred_obj.df.pred_win_prob,
+                                 match_pred_obj.df.radiantVictory)
+        else:
+            output = WinProbDict(match_pred_obj.df.radiant_name,
+                                 match_pred_obj.df.dire_name,
+                                 match_pred_obj.df.match_i_in_series,
+                                 match_pred_obj.df.startDate,
+                                 match_pred_obj.df.pred_win_prob_unknown_side,
+                                 match_pred_obj.df.radiantVictory)
+        return output
+
+    def query(self, team_1, team_2, map_i, time, method='nearest',
+              tolerance=None):
+        """Get win probability and map outcome with an inexact query time.
+
+        Args:
+            team_1 (str or int): ID of the first team.
+            team_2 (str or int): ID of the second team.
+            map_i (int): Zero-based index of the current map in the series.
+            time (numpy.datetime64): Query time for the match.
+            method (str): Argument for :func:`pandas.Index.get_loc`.
+            tolerance (float): Argument for :func:`pandas.Index.get_loc`.
+
+        Returns:
+            tuple: A tuple of (<win_prob>, <outcome>, <map_start>), where
+                <map_start> is the recorded map start time.
+        """
+        time = pd.to_datetime(time)
+        team_1 = team_1.lower()
+        team_2 = team_2.lower()
+        if time.tz is None:
+            time = time.tz_localize('UTC')
+        else:
+            time = time.tz_convert('UTC')
+        if team_1 <= team_2:
+            key = (team_1, team_2, map_i)
+            flipped = False
+        else:
+            key = (team_2, team_1, map_i)
+            flipped = True
+        if key not in self.data:
+            ret = (np.nan, np.nan, np.nan)
+        else:
+            df = self.data[key]
+            idx = df.index.get_loc(time, method=method, tolerance=tolerance)
+            row = df.iloc[idx].to_dict()
+            win_prob = row['win_prob']
+            team_1_win = row['outcome']
+            if not flipped:
+                ret = (win_prob, team_1_win, df.index[idx])
+            else:
+                ret = (1 - win_prob, not team_1_win, df.index[idx])
+        return ret
+
+    def query_l(self, team_1, team_2, map_i, time, method='nearest',
+                tolerance=None):
+        """Get a list of win probabilities with inexact query times.
+
+        Args:
+            team_1 (str, int or array-like): IDs of the first teams.
+            team_2 (str, int or array-like): IDs of the second teams.
+            map_i (int): or array-like Zero-based indexes of the maps in the
+                series.
+            time (numpy.datetime64): Query times for the matches.
+            method (str): Argument for :func:`pandas.Index.get_loc`.
+            tolerance (float): Argument for :func:`pandas.Index.get_loc`.
+
+        Returns:
+            array-like: A list of win probabilities. If `time` is a
+                :class:`pandas.Series`, then return a :class:`pandas.Series`
+                with the same index. Otherwise return a :class:`numpy.ndarray`.
+        """
+        # Use Pandas' broadcasting to fill in scalars as lists.
+        # Ensure that at least one of the variables are lists to pacify Pandas.
+        try:
+            _ = (i for i in map_i)
+        except TypeError:
+            map_i = [map_i]
+        zipped_params = pd.DataFrame(
+            {'t1': team_1, 't2': team_2, 'map_i': map_i, 'time': time})
+        win_probs = [self.query(t1, t2, mi, time, method, tolerance)
+                     for t1, t2, mi, time in zipped_params.itertuples(False)]
+        if isinstance(time, pd.Series):
+            return pd.DataFrame(
+                win_probs,
+                index=time.index,
+                columns=['pred_win_prob', 'team_1_wins', 'map_start_time'])
+        else:
+            return np.array(win_probs)
+
+    def _utc_localise_time(self, time):
+        """Make sure time is a UTC-localised Pandas series."""
+        new_time = pd.to_datetime(pd.Series(time))
+        if new_time.dt.tz is not None:
+            new_time = new_time.dt.tz_convert(None)
+        return new_time
+
+
 class MatchPred:
     """Class for storing and analysing match predictions.
 
@@ -217,23 +362,29 @@ class MatchPred:
     """
 
     def __init__(self, matches, match_pred, logistic_scale, skills_mat=None):
+        # Store the match and predictions data.
+        self._validate_match_pred(match_pred)
+        assert isinstance(matches, load.MatchDF)
+        self.matches = load.MatchDF(matches.df.reindex(match_pred.index))
+        self.df = self.matches.df.merge(match_pred, left_index=True,
+                                        right_index=True)
+
+        # Store some other miscellaneous data.
         assert isinstance(logistic_scale, (float, int))
         self.logistic_scale = logistic_scale
 
-        self._validate_match_pred(match_pred)
-        self.match_pred = self._add_unknown_side_win_prob(match_pred)
-        assert isinstance(matches, load.MatchDF)
-        self.matches = load.MatchDF(matches.df.reindex(self.match_pred.index))
-
-        # Need to re-reindex everything, since load.MatchDF sorts the data
-        # frame by match ID..
-        self.match_pred = self.match_pred.loc[self.matches.df.index]
+        # Store skills matrix if available.
         if skills_mat is not None:
-            self.skills_mat = skills_mat.loc[self.matches.df.index]
+            self.skills_mat = skills_mat.loc[self.df.index]
         else:
             self.skills_mat = None
 
         self._hovertext = None
+
+    @property
+    def match_pred(self):
+        """For backward compatibility."""
+        return self.df
 
     @property
     def hovertext(self):
@@ -264,10 +415,10 @@ class MatchPred:
             hovertext = [x + "</br>{}: {:.3f}".format(player_name, s)
                          for x, s in zip(self.hovertext[match_idx], skills)]
             data = self._match_data_to_graph_obj(
-                self.matches.df.loc[:, "startDate"][match_idx].values,
+                self.df.loc[match_idx, "startDate"].values,
                 skills,
-                self.matches.players_mat.loc[:, pid][match_idx] == 1.0,
-                self.matches.df.loc[:, "radiantVictory"][match_idx],
+                self.players_mat.loc[match_idx, pid] == 1.0,
+                self.df.loc[match_idx, "radiantVictory"],
                 hovertext,
                 name=player_name)
             plotly_data.append(data)
@@ -280,21 +431,21 @@ class MatchPred:
         """Create a Plotly figure showing teams' skills."""
         plotly_data = []
         for tid in team_ids:
-            match_idx = ((self.matches.df.radiant_valveId == tid)
-                         | (self.matches.df.dire_valveId == tid))
-            is_radi = self.matches.df.radiant_valveId[match_idx] == tid
+            match_idx = ((self.df.radiant_valveId == tid)
+                         | (self.df.dire_valveId == tid))
+            is_radi = self.df.radiant_valveId[match_idx] == tid
             team_skill = np.where(is_radi,
-                                  self.match_pred.radi_skill[match_idx],
-                                  self.match_pred.dire_skill[match_idx])
+                                  self.df.radi_skill[match_idx],
+                                  self.df.dire_skill[match_idx])
             team_name = self.matches.teams[tid]
             hovertext = [x + "</br>{}: {:.3f}".format(team_name, skill)
                          for x, skill in zip(self.hovertext[match_idx],
                                              team_skill)]
             data = self._match_data_to_graph_obj(
-                self.matches.df.loc[:, "startDate"][match_idx].values,
+                self.df.loc[match_idx, "startDate"].values,
                 team_skill,
                 is_radi,
-                self.matches.df.loc[:, "radiantVictory"][match_idx],
+                self.df.loc[match_idx, "radiantVictory"],
                 hovertext,
                 name=team_name)
             plotly_data.append(data)
@@ -312,11 +463,11 @@ class MatchPred:
             iloc_dict (dict): A dictionary of iloc slices for slicing matches.
         """
         traces = []
-        y_true = self.matches.df.radiantVictory
+        y_true = self.df.radiantVictory
         if side_known:
-            y_pred = self.match_pred.pred_win_prob
+            y_pred = self.df.pred_win_prob
         else:
-            y_pred = self.match_pred.unknown_side
+            y_pred = self.df.pred_win_prob_unknown_side
         if loc_dict is not None:
             for name, loc in loc_dict.items():
                 name += f", AUC: {self._roc_auc(side_known, loc=loc)}"
@@ -330,7 +481,7 @@ class MatchPred:
                     y_true.iloc[iloc], y_pred.iloc[iloc], name)
                 traces.append(trace)
         else:
-            name = f"AUC: self._roc_auc(side_known)"
+            name = f"AUC: {self._roc_auc(side_known)}"
             trace = _prediction_to_plotly_roc_data(y_true, y_pred, name)
             traces.append(trace)
         return roc_curve_plotly_plot(traces)
@@ -339,17 +490,15 @@ class MatchPred:
                            iloc=slice(None), loc=None, assume_side_known=True):
         """Compute prediction bias in a match prediction data frame."""
         if assume_side_known:
-            temp = self.match_pred[["pred_win_prob"]].merge(
-                self.matches.df[["radiantVictory"]], left_index=True,
-                right_index=True)
+            temp = self.df[["pred_win_prob"]].merge(
+                self.df[["radiantVictory"]], left_index=True, right_index=True)
             if loc is None:
                 temp = temp.iloc[iloc]
             else:
                 temp = temp.loc[loc]
         else:
-            temp = self.match_pred[["pred_win_prob_unknown_side"]].merge(
-                self.matches.df[["radiantVictory"]], left_index=True,
-                right_index=True)
+            temp = self.df[["pred_win_prob_unknown_side"]].merge(
+                self.df[["radiantVictory"]], left_index=True, right_index=True)
             temp.rename(columns={'pred_win_prob_unknown_side': 'pred_win_prob'},
                         inplace=True)
             if loc is None:
@@ -424,10 +573,10 @@ class MatchPred:
 
     def match_loglik(self, assume_side_known=True, team_ids=None):
         if assume_side_known:
-            pred_win_prob = self.match_pred.pred_win_prob
+            pred_win_prob = self.df.pred_win_prob
         else:
-            pred_win_prob = self.match_pred.pred_win_prob_unknown_side
-        loglik = np.log(np.where(self.matches.df.radiantVictory, pred_win_prob,
+            pred_win_prob = self.df.pred_win_prob_unknown_side
+        loglik = np.log(np.where(self.df.radiantVictory, pred_win_prob,
                                  1 - pred_win_prob))
         if team_ids is not None:
             idx = self.matches.loc_team(team_ids)
@@ -436,12 +585,12 @@ class MatchPred:
 
     def team_skills(self):
         """Most recent skills of each team."""
-        radi_skills = pd.DataFrame({'time': self.matches.df.startDate,
-                                    'team': self.matches.df.radiant_valveId,
-                                    'skill': self.match_pred.radi_skill})
-        dire_skills = pd.DataFrame({'time': self.matches.df.startDate,
-                                    'team': self.matches.df.dire_valveId,
-                                    'skill': self.match_pred.dire_skill})
+        radi_skills = pd.DataFrame({'time': self.df.startDate,
+                                    'team': self.df.radiant_valveId,
+                                    'skill': self.df.radi_skill})
+        dire_skills = pd.DataFrame({'time': self.df.startDate,
+                                    'team': self.df.dire_valveId,
+                                    'skill': self.df.dire_skill})
         combined_skills = (pd.concat([radi_skills, dire_skills])
                            .sort_values('time'))
         combined_skills = combined_skills.loc[
@@ -466,28 +615,36 @@ class MatchPred:
             pandas.DataFrame: A data frame of observed wins between the teams.
         """
         idx = self.matches.loc_team(team_ids, and_operator=True)
-        matches_f = self.matches.df.loc[idx]
+        matches_f = self.df.loc[idx]
         total = (matches_f.groupby(['radiant_name', 'dire_name']).radiantVictory
                  .size().unstack())
         wins = (matches_f.groupby(['radiant_name', 'dire_name']).radiantVictory
                 .sum().unstack())
         if assume_side_known:
-            merged_df = matches_f.merge(self.match_pred[['pred_win_prob']],
+            merged_df = matches_f.merge(self.df[['pred_win_prob']],
                                         left_index=True, right_index=True)
             expected = (merged_df.groupby(['radiant_name', 'dire_name'])
                         .pred_win_prob.sum().unstack())
         else:
             merged_df = matches_f.merge(
-                self.match_pred[['pred_win_prob_unknown_side']],
+                self.df[['pred_win_prob_unknown_side']],
                 left_index=True,
                 right_index=True)
             expected = (merged_df.groupby(['radiant_name', 'dire_name'])
                         .pred_win_prob_unknown_side.sum().unstack())
         return total, expected, wins
 
+    def map_win_prob(self, team_1, team_2, map_i, time, method='nearest',
+                     tolerance=None):
+        if not hasattr(self, '_wpd'):
+            self._wpd = WinProbDict.from_match_pred(self)
+        win_probs = self._wpd.query_l(team_1, team_2, map_i, time,
+                                      method=method, tolerance=tolerance)
+        return win_probs
+
     def _validate_match_pred(self, match_pred):
         """Validate columns in the match predictions table."""
-        expected_columns = [
+        expected_columns = set([
             'startTimestamp',
             'pred_win_prob',
             'win_prob-2sd',
@@ -496,27 +653,17 @@ class MatchPred:
             'radi_skill_sd',
             'dire_skill',
             'dire_skill_sd',
-            'radi_adv']
-        if not set(match_pred.columns) == set(expected_columns):
-            raise ValueError("Unexpected columns in match_pred.")
-
-    def _add_unknown_side_win_prob(self, match_pred):
-        """
-        Add a column called 'pred_win_prob_unknown_side' for win probability
-        given unknown side each team plays on.
-        """
-        skill_diff = match_pred.radi_skill - match_pred.dire_skill
-        radi_adv = match_pred.radi_adv
-        y_pred = (self.win_prob(skill_diff + radi_adv) / 2
-                  + self.win_prob(skill_diff - radi_adv) / 2)
-        return match_pred.assign(pred_win_prob_unknown_side=y_pred)
+            'radi_adv',
+            'pred_win_prob_unknown_side'])
+        if not set(match_pred.columns) >= expected_columns:
+            raise ValueError("Missing expected columns in match_pred.")
 
     def _match_entry_to_hovertext(self, match, prediction, cur_skills):
         """Convert one entry of a match with predictions to hovertext.
 
         Args:
-            match (pandas.Series): A row in self.matches.df.
-            prediction (pandas.Series): A row in self.match_pred.
+            match (pandas.Series): A row in self.df.
+            prediction (pandas.Series): A row in self.df.
             cur_skills (pandas.Series): A row in self.skills_mat.
         """
         radi_skills = cur_skills.loc[match.radiant_players]
@@ -550,12 +697,12 @@ class MatchPred:
         return(output)
 
     def _compute_series_df(self):
-        skill_diff = self.match_pred.radi_skill - self.match_pred.dire_skill
-        radi_adv = self.match_pred.radi_adv
+        skill_diff = self.df.radi_skill - self.df.dire_skill
+        radi_adv = self.df.radi_adv
         y_pred = (self.win_prob(skill_diff + radi_adv) / 2
                   + self.win_prob(skill_diff - radi_adv) / 2)
         series_df = \
-            (self.matches.df.assign(pred_win_prob=y_pred)
+            (self.df.assign(pred_win_prob=y_pred)
              .groupby('seriesId')
              .apply(lambda df: pd.Series(DotaSeries.from_df(df).to_dict())))
         return series_df
@@ -563,10 +710,10 @@ class MatchPred:
     def _matches_to_hovertext(self):
         """Create hovertext for plotly data points."""
         hovertext = [self._match_entry_to_hovertext(m[1], p[1], s[1])
-                     for m, p, s in zip(self.matches.df.iterrows(),
-                                        self.match_pred.iterrows(),
+                     for m, p, s in zip(self.df.iterrows(),
+                                        self.df.iterrows(),
                                         self.skills_mat.iterrows())]
-        return pd.Series(hovertext, index=self.matches.df.index)
+        return pd.Series(hovertext, index=self.df.index)
 
     def _side_outcome_to_symbol(self, is_radi, radi_win):
         """Compute Plotly symbol based on side and outcome."""
@@ -577,11 +724,11 @@ class MatchPred:
         return symbol
 
     def _roc_auc(self, side_known, loc=None, iloc=None):
-        y_true = self.matches.df.radiantVictory
+        y_true = self.df.radiantVictory
         if side_known:
-            y_pred = self.match_pred.pred_win_prob
+            y_pred = self.df.pred_win_prob
         else:
-            y_pred = self.match_pred.pred_win_prob_unknown_side
+            y_pred = self.df.pred_win_prob_unknown_side
         if loc is not None:
             y_true, y_pred = (y_true[loc], y_pred[loc])
         elif iloc is not None:
