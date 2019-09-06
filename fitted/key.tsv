@@ -11,4 +11,5 @@ iter_newton_scale-1.25_logistic-3_radisd-3.3000-trains.*.gz	data/raw/premium_mat
 iter_newton_scale-1.25_logistic-3_radisd-3.3500-trains.*.gz	data/raw/premium_matches.2019-08-11.json.gz	fe048c5104caeafd13c97f717d10da6ef1977c5c	2019-08-13	c5.large	NULL	1.25	3	3	5	3500	500	1000
 iter_newton_scale-1.25_logistic-3_radisd-3.4000-trains.*.gz	data/raw/premium_matches.2019-08-11.json.gz	fe048c5104caeafd13c97f717d10da6ef1977c5c	2019-08-13	c5.large	NULL	1.25	3	3	5	4000	500	500
 iter_newton_scale-1.25_logistic-3_radisd-3.4500-trains.*.gz	data/raw/premium_matches.2019-08-11.json.gz	fe048c5104caeafd13c97f717d10da6ef1977c5c	2019-08-13	c5.large	NULL	1.25	3	3	5	4500	500	0
-ti9_grp_new_params_by_map	data/raw/premium_matches.2019-08-19.json.gz	cf6a891d46be1ba186cc62d83368d522314843b6	2019-08-19	mac	2:30:00 1.25	3	3	NULL	4856	144	0
+ti9_grp_new_params_by_map.*.gz	data/raw/premium_matches.2019-08-19.json.gz	cf6a891d46be1ba186cc62d83368d522314843b6	2019-08-19	mac	2:30:00 1.25	3	3	NULL	4856	144	0
+ti9_full_new_params_by_map.*.gz	data/raw/premium_matches.2019-08-31.json.gz	2afd50a97643ab3fdbd1f9193b2321fc5bb52f46	2019-09-06	mac	2:15:00	1.25	3	3	NULL	4807	193	0
