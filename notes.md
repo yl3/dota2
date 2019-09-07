@@ -1,12 +1,18 @@
 # Notes
 
+## 2019-09-06
+
+* First optimise for speed using einsum and/or numba.
+  * Then rerun a new set of experiments using different logistic scales and covariance function scales.
+* Clean up Fairlay data.
+
 ## 2019-08-31
 
 TODO:
 
 * Run a new set of experiments for the full TI9 dataset with different prior SDs.
-* Plot team skills over TI9.
-* Compute the confidence intervals for the betting EVs.
+* Plot team skills over TI9 [DONE].
+* Compute the confidence intervals for the betting EVs [DONE].
 
 ## 2019-08-30
 
