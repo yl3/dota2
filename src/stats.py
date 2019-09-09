@@ -227,7 +227,8 @@ class WinProbDict:
     # (team_1, team_2, map_index) -> DataFrame, where the data frame is indexed
     # by datetime. team_1 and team_2 are normalised such that team_1 <= team_2.
 
-    def __init__(self, team_1, team_2, map_i, time, win_prob, outcome):
+    def __init__(self, team_1, team_2, map_i, time, win_prob, outcome,
+                 valve_map_id=None):
         self.data = {}
         team_1 = pd.Series(team_1).str.lower()
         team_2 = pd.Series(team_2).str.lower()
@@ -238,7 +239,8 @@ class WinProbDict:
         time = self._utc_localise_time(time)
         temp_df = pd.DataFrame(
             {'team_1': norm_team_1, 'team_2': norm_team_2, 'map_i': map_i,
-             'win_prob': norm_win_prob, 'outcome': norm_outcome, 'time': time})
+             'win_prob': norm_win_prob, 'outcome': norm_outcome, 'time': time,
+             'map_id': valve_map_id})
         temp_df.set_index('time', inplace=True)
         for key, sub_df in temp_df.groupby(['team_1', 'team_2', 'map_i']):
             self.data[key] = sub_df
@@ -253,14 +255,16 @@ class WinProbDict:
                                  match_pred_obj.df.match_i_in_series,
                                  match_pred_obj.df.startDate,
                                  match_pred_obj.df.pred_win_prob,
-                                 match_pred_obj.df.radiantVictory)
+                                 match_pred_obj.df.radiantVictory,
+                                 match_pred_obj.df.index)
         else:
             output = WinProbDict(match_pred_obj.df.radiant_name,
                                  match_pred_obj.df.dire_name,
                                  match_pred_obj.df.match_i_in_series,
                                  match_pred_obj.df.startDate,
                                  match_pred_obj.df.pred_win_prob_unknown_side,
-                                 match_pred_obj.df.radiantVictory)
+                                 match_pred_obj.df.radiantVictory,
+                                 match_pred_obj.df.index)
         return output
 
     def query(self, team_1, team_2, map_i, time, method='nearest',
@@ -276,8 +280,8 @@ class WinProbDict:
             tolerance (float): Argument for :func:`pandas.Index.get_loc`.
 
         Returns:
-            tuple: A tuple of (<win_prob>, <outcome>, <map_start>), where
-                <map_start> is the recorded map start time.
+            tuple: A tuple of (<win_prob>, <outcome>, <map_start>, <map_id>),
+                where <map_start> is the recorded map start time.
         """
         time = pd.to_datetime(time)
         team_1 = team_1.lower()
@@ -293,7 +297,7 @@ class WinProbDict:
             key = (team_2, team_1, map_i)
             flipped = True
         if key not in self.data:
-            ret = (np.nan, np.nan, np.nan)
+            ret = (np.nan, np.nan, np.nan, None)
         else:
             df = self.data[key]
             idx = df.index.get_loc(time, method=method, tolerance=tolerance)
@@ -301,9 +305,10 @@ class WinProbDict:
             win_prob = row['win_prob']
             team_1_win = row['outcome']
             if not flipped:
-                ret = (win_prob, team_1_win, df.index[idx])
+                ret = (win_prob, team_1_win, df.index[idx], df.map_id[idx])
             else:
-                ret = (1 - win_prob, not team_1_win, df.index[idx])
+                ret = (1 - win_prob, not team_1_win, df.index[idx],
+                       df.map_id[idx])
         return ret
 
     def query_l(self, team_1, team_2, map_i, time, method='nearest',
@@ -335,10 +340,13 @@ class WinProbDict:
         win_probs = [self.query(t1, t2, mi, time, method, tolerance)
                      for t1, t2, mi, time in zipped_params.itertuples(False)]
         if isinstance(time, pd.Series):
-            return pd.DataFrame(
+            ret_df = pd.DataFrame(
                 win_probs,
                 index=time.index,
-                columns=['pred_win_prob', 'team_1_wins', 'map_start_time'])
+                columns=['pred_win_prob', 'team_1_wins', 'map_start_time',
+                         'map_id'])
+            ret_df['map_id'] = ret_df['map_id'].astype(pd.Int64Dtype())
+            return ret_df
         else:
             return np.array(win_probs)
 
