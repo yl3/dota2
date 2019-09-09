@@ -115,49 +115,56 @@ def _produce_match_groups(match_df, chunk_size):
     return match_groups
 
 
-def iterative_newton_fitter(matches, args):
-    """Iterative Newton-CG fitter.
+def _backward_fit(matches, **kwargs):
+    """Backward fitting of a set of matches.
 
-    Matches are fitted in chunks based on the start time of the `series`.
+    Args:
+        matches (pandas.DataFrame): A data frame from
+            :attr:`src.load.MatchDF.df`.
+        kwargs (dict): Dictionary of arguments for
+            :class:`src.models.gp.SkillsGPMAP`.
+
+    Returns:
+        src.models.gp.SkillsGPMAP: A fitted GP model.
     """
-    # Order by series start time.
-    matches = matches.sort_values(['series_start_time'])
-
-    # Remove skipped matches.
-    if args.skip_matches is not None:
-        matches = matches.iloc[args.skip_matches:]
-
-    # Fit the initial model.
-    initial_matches = matches.iloc[:args.training_matches]
-    initial_matches_players_mat = munge.make_match_players_matrix(
-        initial_matches.radiant_players, initial_matches.dire_players)
+    players_mat = munge.make_match_players_matrix(
+        matches.radiant_players, matches.dire_players)
     gp_model = src.models.gp.SkillsGPMAP(
-        None,
-        None,
-        initial_matches_players_mat,
-        initial_matches.startTimestamp.values,
-        initial_matches.radiantVictory,
-        "exponential",
-        {"scale": args.scale},
-        args.radi_prior_sd,
-        args.logistic_scale)
-    sys.stderr.write(
-        f"[{_cur_time()}] Fitting the {args.training_matches} matches.\n")
+        players_mat=players_mat,
+        start_times=matches.startTimestamp.values,
+        radiant_win=matches.radiantVictory,
+        **kwargs)
     gp_model.fit()
-    initial_pred_df = gp_model.fitted_pred_df()
-    initial_pred_df['iter'] = 0
-    initial_skills_mat = gp_model.fitted_skills_mat()
-    if args.test_matches == 0:
-        return initial_pred_df, initial_skills_mat, None, None, None
+    return gp_model
 
-    # Iteratively predict and refit the model.
-    test_matches = matches.iloc[args.training_matches:]
-    test_match_groups = _produce_match_groups(test_matches, args.chunk_size)
+
+def _forward_fit(gp_model, matches, chunk_size, max_maps_to_fit):
+    """Forward-fit maps one by one or in chunks of series.
+
+    Args:
+        gp_model (src.models.gp.SkillsGPMAP): A GP model fitted using training
+            samples.
+        matches (pandas.DataFrame): A list of matches to be forward fitted from
+            :attr:`src.load.MatchDF.df`.
+        chunk_size (int): Number of series in a chunk to fit. :class:`None`
+            indicates fitting map by map.
+        max_maps_to_fit (int): Maximum number of maps to fit.
+
+    Returns:
+        pandas.DataFrame: A data frame of predictions computed by
+            :method"`src.models.gp.SkillsGPMAP.predict_matches`.
+        pandas.DataFrame: A matrix of shape (maps, players) of player skills.
+        pandas.DataFrame: A matrix of shape (maps, players) of player skill
+            Gaussian process variances derived using GP covariance.
+    """
+    test_match_groups = _produce_match_groups(matches, chunk_size)
     predictions = []
     mu_mats = []
     var_mats = []
     matches_fitted = 0
     iter = 1
+
+    # Iteratively predict and refit the model.
     for match_grp in test_match_groups:
         msg = (f"[{_cur_time()}] So far predicted: {matches_fitted} matches. "
                f"Predicting matches {list(match_grp.index)} "
@@ -199,10 +206,11 @@ def iterative_newton_fitter(matches, args):
             raise e
 
         matches_fitted += match_grp.shape[0]
-        if matches_fitted >= args.test_matches:
+        if matches_fitted >= max_maps_to_fit:
             break
         iter += 1
     predictions_df = pd.concat(predictions)
+
     # Compute the column for win probability without a known side.
     skill_diff_side_reversed = (predictions_df.radi_skill
                                 - predictions_df.dire_skill
@@ -212,21 +220,55 @@ def iterative_newton_fitter(matches, args):
          + gp_model.win_prob(skill_diff_side_reversed)) / 2
     mu_df = pd.concat(mu_mats)
     var_df = pd.concat(var_mats)
-    pred_df = pd.concat([initial_pred_df, predictions_df], sort=True)
-    skills_mat = pd.concat([initial_skills_mat, mu_df], sort=True)
-    return pred_df, skills_mat, var_df
+    return predictions_df, mu_df, var_df
+
+
+def iterative_newton_fitter(matches, args):
+    """Iterative Newton-CG fitter.
+
+    Matches are fitted in chunks based on the start time of the `series`.
+    """
+    # Order by series start time. Remove skipped matches if necessary.
+    temp_df = matches.df.sort_values(['series_start_time'])
+    if args.skip_matches is not None:
+        temp_df = temp_df.iloc[args.skip_matches:]
+    matches = load.MatchDF(temp_df)
+
+    # Backward-fit the initial model.
+    initial_matches = matches.df.iloc[:args.training_matches]
+    sys.stderr.write(
+        f"[{_cur_time()}] Fitting the {args.training_matches} matches.\n")
+    gp_model = _backward_fit(
+        initial_matches,
+        cov_func_name="exponential",
+        cov_func_kwargs={'scale': args.scale},
+        radi_prior_sd=args.radi_prior_sd,
+        logistic_scale=args.logistic_scale)
+    initial_pred_df = gp_model.fitted_pred_df()
+    initial_pred_df['iter'] = 0
+    initial_skills_mat = gp_model.fitted_skills_mat()
+
+    # Forward-fit the test maps if requested.
+    if args.test_matches == 0:
+        return initial_pred_df, initial_skills_mat, None
+    else:
+        test_matches = matches.df.iloc[args.training_matches:]
+        predictions_df, mu_df, var_df = _forward_fit(
+            gp_model, test_matches, args.chunk_size, args.test_matches)
+        pred_df = pd.concat([initial_pred_df, predictions_df], sort=True)
+        skills_mat = pd.concat([initial_skills_mat, mu_df], sort=True)
+        return pred_df, skills_mat, var_df
 
 
 def main():
     args = parse_args()
-    matches = load_matches(args.matches_json)
-    # Perform checks and compute series start times.
-    matches = load.MatchDF(matches).df
+    matches = load.MatchDF(load_matches(args.matches_json))
     if args.method == 'newton':
         predictions, skills_mat, var_df = iterative_newton_fitter(matches, args)
         predictions.to_csv(args.output_prefix + ".win_probs", sep="\t")
         skills_mat.to_csv(args.output_prefix + ".player_skills", sep="\t")
-        var_df.to_csv(args.output_prefix + ".player_skill_vars", sep="\t")
+        if var_df is not None:
+            var_df.to_csv(args.output_prefix + ".player_skill_vars", sep="\t")
 
 
 if __name__ == "__main__":
