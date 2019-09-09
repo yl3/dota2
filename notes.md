@@ -1,8 +1,25 @@
 # Notes
 
+## 2019-09-08
+
+Note: cannot optimise anymore, since the following matrix multiplication step already takes ~90% of the `SkillsGPMAP.fit()` function's time.
+
+    prior_lprob_hessian_p = minus_inv_cov_mat @ p
+
+When fitting the entire TI9, we get 132 positive EV maps etc (see [`reports/2019-09-06.fairlay_ti9_full_tourney.ipynb`](), whereas when fitting only the group stages produces 127 positive EV maps (see [`reports/2019-08-31.fairlay_ti9_group_stage.ipynb`](). Upon closer inspection, it ca be verified that this is due to the fact that the fitted skills are slightly different, and sometimes a slighly positive EV map ends up being slightly negative.
+
+TODO:
+
+* **Why does the skill level of a team go down when the team wins?**
+* How many *premium* games are played by the non-TI9 matches for which we have Fairlay odds data?
+    * How about *premium* + *professional* matches?
+* How long does it take to fit the 10,000 *premium* and *professional* matches?
+* Fit matches and test the prediction accuracy of the non-TI9 maps.
+
+
 ## 2019-09-06
 
-* First optimise for speed using einsum and/or numba.
+* [CANCELLED] First optimise for speed using einsum and/or numba.
   * Then rerun a new set of experiments using different logistic scales and covariance function scales.
 * Clean up Fairlay data.
 
