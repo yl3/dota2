@@ -205,7 +205,7 @@ class DotaSeries:
             1 - self.team_1_series_win_prob - self.series_draw_prob
 
 
-class MatchPred:
+class MatchPred(load.MatchDF):
     """Class for storing and analysing match predictions.
 
     Arguments:
@@ -220,9 +220,11 @@ class MatchPred:
         # Store the match and predictions data.
         self._validate_match_pred(match_pred)
         assert isinstance(matches, load.MatchDF)
-        self.matches = load.MatchDF(matches.df.reindex(match_pred.index))
-        self.df = self.matches.df.merge(match_pred, left_index=True,
-                                        right_index=True)
+        reindexed_matches = matches.df.reindex(match_pred.index)
+        super().__init__(reindexed_matches)
+
+        # Add the prediction data columns to the current match data frame.
+        self.df = self.df.merge(match_pred, left_index=True, right_index=True)
 
         # Store some other miscellaneous data.
         assert isinstance(logistic_scale, (float, int))
@@ -234,8 +236,6 @@ class MatchPred:
         else:
             self.skills_mat = None
 
-        self._hovertext = None
-
     @property
     def match_pred(self):
         """For backward compatibility."""
@@ -243,7 +243,7 @@ class MatchPred:
 
     @property
     def hovertext(self):
-        if self._hovertext is None:
+        if not hasattr(self, '_hovertext'):
             self._hovertext = self._matches_to_hovertext()
         return self._hovertext
 
@@ -492,14 +492,9 @@ class MatchPred:
     def _validate_match_pred(self, match_pred):
         """Validate columns in the match predictions table."""
         expected_columns = set([
-            'startTimestamp',
             'pred_win_prob',
-            'win_prob-2sd',
-            'win_prob+2sd',
             'radi_skill',
-            'radi_skill_sd',
             'dire_skill',
-            'dire_skill_sd',
             'radi_adv',
             'pred_win_prob_unknown_side'])
         if not set(match_pred.columns) >= expected_columns:
