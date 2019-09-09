@@ -1,5 +1,9 @@
 # Notes
 
+## 2019-09-09
+
+Fitting 10,000 matches takes around 8 minutes (see [`notebooks/2019-09-09.data_for_prof_matches.ipynb`]()).
+
 ## 2019-09-08
 
 Note: cannot optimise anymore, since the following matrix multiplication step already takes ~90% of the `SkillsGPMAP.fit()` function's time.
