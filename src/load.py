@@ -248,7 +248,7 @@ class MatchDF:
         return out_df
 
     def _validate_matches_df(self, matches_df):
-        expected_columns = [
+        expected_columns = set([
             'startDate',
             'league_name',
             'radiant_name',
@@ -263,9 +263,9 @@ class MatchDF:
             'radiant_players',
             'radiant_valveId',
             'seriesId',
-            'startTimestamp']
-        if not all([x in matches_df.columns for x in expected_columns]):
-            raise ValueError("Expected columns not found.")
+            'startTimestamp'])
+        if not expected_columns <= set(matches_df.columns):
+            raise ValueError("Some expected columns not found.")
 
     def _fill_missing_series_id(self, matches_df):
         """Fill in missing series ID with the minus match ID."""
