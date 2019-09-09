@@ -341,11 +341,13 @@ class SkillsGPMAP(SkillsGP):
             self._initial_radi_adv = 0.0
         self.fitted = None
 
-    def fit(self, print_fit=False):
+    def fit(self, print_fit=False, **kwargs):
         """Perform a Newton-Raphson fit of the model.
 
         Args:
             print_fit (bool): Whether to print the fitted results.
+            kwargs (dict): Additional keyword arguments for
+                :func:`scipy.optimize.minimize`.
 
         Returns:
             tuple: A tuple of fitted skills and fitted Radiant advantage.
@@ -380,7 +382,7 @@ class SkillsGPMAP(SkillsGP):
         initial_values = np.append(self._initial_skills, self._initial_radi_adv)
         self.fitted = scipy.optimize.minimize(
             minus_full_loglik, initial_values, method='Newton-CG',
-            jac=minus_gradient, hessp=minus_hessp)
+            jac=minus_gradient, hessp=minus_hessp, **kwargs)
 
         if print_fit:
             print(self.fitted)
