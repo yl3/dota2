@@ -61,6 +61,133 @@ def all_matches_df():
     return matches_json_to_df(matches_json)
 
 
+class MatchupDict:
+    """
+    A helper class for querying matches using inexact time stamps. The values
+    stored are pandas indices.
+
+    Internally, the time index is stored as UTC and the team names are stored
+    as lower case values.
+
+    Args:
+        team_1 (array-like): A 1D-array of team 1 identifiers or names.
+        team_2 (array-like): A 1D-array of team 2 identifiers or names.
+        map_i (int): Zero-based index of the current map in the series.
+        time (pandas.Series): The start time of each map. The index of this
+            series is what is returned when this class is queried.
+    """
+    # Internally, the win probabilities are stored in a dictionary of
+    # (team_1, team_2, map_index) -> DataFrame, where the data frame is indexed
+    # by datetime. team_1 and team_2 are normalised such that team_1 <= team_2.
+
+    def __init__(self, team_1, team_2, map_i, time):
+        self.data = {}
+        team_1 = pd.Series(team_1).str.lower()
+        team_2 = pd.Series(team_2).str.lower()
+        norm_team_1 = np.where(team_1 <= team_2, team_1, team_2)
+        norm_team_2 = np.where(team_1 <= team_2, team_2, team_1)
+        time = self._utc_localise_time(time)
+        temp_df = pd.DataFrame(
+            {'team_1': norm_team_1, 'team_2': norm_team_2, 'map_i': map_i,
+             'map_idx': time.index})
+        temp_df.index = time.values
+        for key, sub_df in temp_df.groupby(['team_1', 'team_2', 'map_i']):
+            self.data[key] = sub_df
+
+    def from_match_df(matchdf_obj):
+        """Initialise from a MatchDF object."""
+        if not isinstance(matchdf_obj, MatchDF):
+            raise TypeError('matchdf_obj is not an object of MatchDF.')
+        output = MatchupDict(matchdf_obj.df.radiant_name,
+                             matchdf_obj.df.dire_name,
+                             matchdf_obj.df.match_i_in_series,
+                             matchdf_obj.df.startDate)
+        return output
+
+    def query(self, team_1, team_2, map_i, time, method='nearest',
+              tolerance=None):
+        """Get the match index with inexact query time.
+
+        Args:
+            team_1 (str): ID of the first team.
+            team_2 (str): ID of the second team.
+            map_i (int): Zero-based index of the current map in the series.
+            time (numpy.datetime64): Query time for the match.
+            method (str): Argument for :func:`pandas.Index.get_loc`.
+            tolerance (float): Argument for :func:`pandas.Index.get_loc`.
+
+        Returns:
+            tuple: A tuple of (<map_idx>, <flipped>).
+        """
+        time = pd.to_datetime(time)
+        team_1 = team_1.lower()
+        team_2 = team_2.lower()
+        if time.tz is None:
+            time = time.tz_localize('UTC')
+        else:
+            time = time.tz_convert('UTC')
+        if team_1 <= team_2:
+            key = (team_1, team_2, map_i)
+            flipped = False
+        else:
+            key = (team_2, team_1, map_i)
+            flipped = True
+        if key not in self.data:
+            ret = (np.nan, np.nan)
+        else:
+            df = self.data[key]
+            idx = df.index.get_loc(time, method=method, tolerance=tolerance)
+            assert isinstance(idx, int)
+            map_idx = df.iloc[idx]['map_idx']
+            ret = (map_idx, flipped)
+        return ret
+
+    def query_l(self, team_1, team_2, map_i, time, method='nearest',
+                tolerance=None):
+        """Get a list of win probabilities with inexact query times.
+
+        Args:
+            team_1 (str, int or array-like): IDs of the first teams.
+            team_2 (str, int or array-like): IDs of the second teams.
+            map_i (int): or array-like Zero-based indexes of the maps in the
+                series.
+            time (numpy.datetime64): Query times for the matches.
+            method (str): Argument for :func:`pandas.Index.get_loc`.
+            tolerance (float): Argument for :func:`pandas.Index.get_loc`.
+
+        Returns:
+            array-like: A list of win probabilities. If `time` is a
+                :class:`pandas.Series`, then return a :class:`pandas.Series`
+                with the same index. Otherwise return a :class:`numpy.ndarray`.
+        """
+        # Use Pandas' broadcasting to fill in scalars as lists.
+        # Ensure that at least one of the variables are lists to pacify Pandas.
+        if isinstance(time, str):
+            time = [time]
+        try:
+            _ = (i for i in time)
+        except TypeError:
+            time = [time]
+        zipped_params = pd.DataFrame(
+            {'qry_team1': team_1, 'qry_team2': team_2, 'qry_map_i': map_i,
+             'qry_time': time})
+        qry_res = [self.query(t1, t2, mi, time, method, tolerance)
+                   for t1, t2, mi, time in zipped_params.itertuples(False)]
+        ret_df = pd.DataFrame(
+            qry_res,
+            index=pd.MultiIndex.from_frame(zipped_params),
+            columns=['map_id', 'flipped'])
+        ret_df['map_id'] = ret_df['map_id'].astype(pd.Int64Dtype())
+        return ret_df
+
+    def _utc_localise_time(self, time):
+        """Make sure time is a UTC-localised Pandas series."""
+        new_time = pd.to_datetime(time)
+        if new_time.dt.tz is not None:
+            new_time = new_time.dt.tz_convert(None)
+        return new_time
+
+
 class MatchDF:
     """Provide error checking and functionality for match data frame."""
 
@@ -102,8 +229,26 @@ class MatchDF:
                    | self.df.dire_valveId.isin(team_ids))
         return idx
 
+    def query_maps(self, team_1, team_2, map_i, time, method='nearest',
+                   tolerance=None):
+        """Match maps based on teams involved and inexact start time.
+
+        See :meth:`MatchupDict.query_l` for details.
+
+        Returns:
+            pandas.DataFrame: The current data frame matched with the query.
+        """
+        if not hasattr(self, '_matchup_dict'):
+            self._matchup_dict = MatchupDict.from_match_df(self)
+        temp = self._matchup_dict.query_l(team_1, team_2, map_i, time, method,
+                                          tolerance)
+        out_df = self.df.loc[temp.map_id].reset_index().assign(
+            qry_flipped=temp.flipped.values)
+        out_df.index = temp.index
+        return out_df
+
     def _validate_matches_df(self, matches_df):
-        expected_columns = [
+        expected_columns = set([
             'startDate',
             'league_name',
             'radiant_name',
@@ -118,9 +263,9 @@ class MatchDF:
             'radiant_players',
             'radiant_valveId',
             'seriesId',
-            'startTimestamp']
-        if not all([x in matches_df.columns for x in expected_columns]):
-            raise ValueError("Expected columns not found.")
+            'startTimestamp'])
+        if not expected_columns <= set(matches_df.columns):
+            raise ValueError("Some expected columns not found.")
 
     def _fill_missing_series_id(self, matches_df):
         """Fill in missing series ID with the minus match ID."""
