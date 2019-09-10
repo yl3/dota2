@@ -244,6 +244,7 @@ class MatchDF:
                                           tolerance)
         out_df = self.df.loc[temp.map_id].reset_index().assign(
             qry_flipped=temp.flipped.values)
+        out_df.matchId = out_df.matchId.astype(pd.Int64Dtype())
         out_df.index = temp.index
         return out_df
 

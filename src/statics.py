@@ -29,7 +29,8 @@ FAIRLAY_TEAM_NAME_TR = {
     'evos esports': 'Team EVOS',
     '2be continued esports': '2Be.Dota2',
     'prime': 'The Prime NND',
-    'sunrise': 'VG.Sunrise'
+    'sunrise': 'VG.Sunrise',
+    'flytomoon': 'FlyToMoon',
 }
 
 
@@ -39,7 +40,7 @@ def fairlay_team_tr(team_name):
         return FAIRLAY_TEAM_NAME_TR.get(team_name.lower(), team_name)
     elif isinstance(team_name, pd.Series):
         return pd.Series(
-            [FAIRLAY_TEAM_NAME_TR.get(x, x) for x in team_name.str.lower()],
+            [FAIRLAY_TEAM_NAME_TR.get(x.lower(), x) for x in team_name],
             index=team_name.index)
     else:
         return [FAIRLAY_TEAM_NAME_TR.get(x, x) for x in team_name.str.lower()]
