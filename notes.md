@@ -1,5 +1,13 @@
 # Notes
 
+## 2019-09-09
+
+Fitting 10,000 matches takes around 8 minutes (see [`notebooks/2019-09-09.data_for_prof_matches.ipynb`]()).
+
+Of the recent Fairlay odds matches (in August), none are among the last year's *premium* tournaments and only Lootbet is within the "professional" maps. Thus, we'd have to fit using these professional tournament matches in order to backtest Lootbet.
+
+The teams for which we have data are Vega Squadron (110 games in premium and 135 in professional), Hippomaniacs (31 and 32), FlyToMoon (21 and 30) and Pavaga Junior (10 and 30). Thus, we could potentially test our model using professional matches alone, although it would be nice to fit both premium and professional matches together.
+
 ## 2019-09-08
 
 Note: cannot optimise anymore, since the following matrix multiplication step already takes ~90% of the `SkillsGPMAP.fit()` function's time.

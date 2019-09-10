@@ -1,5 +1,7 @@
 """Static variables."""
 
+import pandas as pd
+
 
 TI9_TEAM_NAMES = {
     "Alliance": 111474,
@@ -21,3 +23,24 @@ TI9_TEAM_NAMES = {
     "Vici Gaming": 726228,
     "Virtus.pro": 1883502,
 }
+
+
+FAIRLAY_TEAM_NAME_TR = {
+    'evos esports': 'Team EVOS',
+    '2be continued esports': '2Be.Dota2',
+    'prime': 'The Prime NND',
+    'sunrise': 'VG.Sunrise',
+    'flytomoon': 'FlyToMoon',
+}
+
+
+def fairlay_team_tr(team_name):
+    """Case insensitive Fairlay to Datdota team name translation."""
+    if isinstance(team_name, str):
+        return FAIRLAY_TEAM_NAME_TR.get(team_name.lower(), team_name)
+    elif isinstance(team_name, pd.Series):
+        return pd.Series(
+            [FAIRLAY_TEAM_NAME_TR.get(x.lower(), x) for x in team_name],
+            index=team_name.index)
+    else:
+        return [FAIRLAY_TEAM_NAME_TR.get(x, x) for x in team_name.str.lower()]
