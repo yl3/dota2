@@ -324,7 +324,7 @@ class SkillsGP:
         return skill_slice_of_player
 
 
-@numba.njit(fastmath=True)
+@numba.njit()
 def _block_diag_list_mult_jit(mat_list, p, breaks):
     out_vec = np.zeros(p.size)
     prev_i = 0
@@ -382,7 +382,9 @@ class SkillsGPMAP(SkillsGP):
         minus_inv_cov_mat = scipy.sparse.block_diag(
             minus_inv_cov_mats + [radi_adv_cov_mat],
             format='csr')
-        minus_inv_cov_mat_list = tuple(minus_inv_cov_mats + [radi_adv_cov_mat])
+        minus_inv_cov_mat_list = numba.typed.List()
+        for x in minus_inv_cov_mats + [radi_adv_cov_mat]:
+            minus_inv_cov_mat_list.append(x)
         p_breaks = np.cumsum([x.shape[0] for x in minus_inv_cov_mat_list])
 
         def minus_full_loglik(params):
