@@ -96,8 +96,9 @@ class MatchupDict:
 
     def from_match_df(matchdf_obj):
         """Initialise from a MatchDF object."""
-        if not isinstance(matchdf_obj, MatchDF):
-            raise TypeError('matchdf_obj is not an object of MatchDF.')
+        # Add below back when we make this a proper package.
+        # if not isinstance(matchdf_obj, MatchDF):
+        #     raise TypeError('matchdf_obj is not an object of MatchDF.')
         output = MatchupDict(matchdf_obj.df.radiant_name,
                              matchdf_obj.df.dire_name,
                              matchdf_obj.df.match_i_in_series,
@@ -243,7 +244,7 @@ class MatchDF:
         temp = self._matchup_dict.query_l(team_1, team_2, map_i, time, method,
                                           tolerance)
         out_df = self.df.loc[temp.map_id].reset_index().assign(
-            qry_flipped=temp.flipped.values)
+            db_flipped=temp.flipped.values)
         out_df.matchId = out_df.matchId.astype(pd.Int64Dtype())
         out_df.index = temp.index
         return out_df
