@@ -292,7 +292,7 @@ class MatchPred(load.MatchDF):
             team_skill = np.where(is_radi,
                                   self.df.radi_skill[match_idx],
                                   self.df.dire_skill[match_idx])
-            team_name = self.matches.teams[tid]
+            team_name = self.teams[tid]
             hovertext = [x + "</br>{}: {:.3f}".format(team_name, skill)
                          for x, skill in zip(self.hovertext[match_idx],
                                              team_skill)]
