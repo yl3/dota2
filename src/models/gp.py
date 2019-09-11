@@ -324,7 +324,7 @@ class SkillsGP:
         return skill_slice_of_player
 
 
-@numba.njit()
+@numba.njit(fastmath=True)
 def _block_diag_list_mult_jit(mat_list, p, breaks):
     out_vec = np.zeros(p.size)
     prev_i = 0
