@@ -1,8 +1,24 @@
 # Notes
 
+## 2019-09-11
+
+Whereas fitting the 5,000 premium matches took 2 min 50 sec previously (see [`notebooks/2019-09-09.data_for_prof_matches.ipynb`]()), with numba we can get it down to 2 min 28 sec with numba and 1 min 57 sec with numba+fastmath enabled ([`notebooks/2019-09-09.optim_blockdiag_matmul.ipynb`]()).
+
+In order for numba to work, the list had to be a `numba.typed.List`. Furthermore, both `List(cov_mat_list)` and `List(tuple(cov_mat_list))` are slow commands to execute and will fail in our custom numba matrix multiplication function if the list contains more than 1,000 items. Instead, the list needs to be appended to iteratively.
+
+    l = numba.typed.List()
+    for x in cov_mat_list:
+        l.append(x)
+
+Interestingly when fitting the full TI9 matches, whether using fastmath or not did not make a difference in the speed.
+
 ## 2019-09-09
 
 Fitting 10,000 matches takes around 8 minutes (see [`notebooks/2019-09-09.data_for_prof_matches.ipynb`]()).
+
+Of the recent Fairlay odds matches (in August), none are among the last year's *premium* tournaments and only Lootbet is within the "professional" maps. Thus, we'd have to fit using these professional tournament matches in order to backtest Lootbet.
+
+The teams for which we have data are Vega Squadron (110 games in premium and 135 in professional), Hippomaniacs (31 and 32), FlyToMoon (21 and 30) and Pavaga Junior (10 and 30). Thus, we could potentially test our model using professional matches alone, although it would be nice to fit both premium and professional matches together.
 
 ## 2019-09-08
 
