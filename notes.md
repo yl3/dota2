@@ -1,5 +1,13 @@
 # Notes
 
+## 2019-09-15
+
+Numba-fitted results seem to make as much sense as pure Python-fitted!
+
+TODO:
+* A template for benchmarking individual predictions.
+* A template for performing forward predictions of unplayed matches.
+
 ## 2019-09-11
 
 Whereas fitting the 5,000 premium matches took 2 min 50 sec previously (see [`notebooks/2019-09-09.data_for_prof_matches.ipynb`]()), with numba we can get it down to 2 min 28 sec with numba and 1 min 57 sec with numba+fastmath enabled ([`notebooks/2019-09-09.optim_blockdiag_matmul.ipynb`]()).
