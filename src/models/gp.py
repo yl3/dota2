@@ -3,14 +3,18 @@
 
 import copy
 import itertools
+import warnings
+
 import numpy as np
 import pandas as pd
-import progressbar
 import scipy.linalg
 import scipy.optimize
 import scipy.spatial.distance
 import scipy.stats
-import warnings
+
+import progressbar
+
+import numba
 
 from .. import munge
 
@@ -320,6 +324,18 @@ class SkillsGP:
         return skill_slice_of_player
 
 
+@numba.njit()
+def _block_diag_list_mult_jit(mat_list, p, breaks):
+    out_vec = np.zeros(p.size)
+    prev_i = 0
+    for i in range(len(mat_list)):
+        m = mat_list[i]
+        b = breaks[i]
+        out_vec[prev_i:b] = m @ p[prev_i:b]
+        prev_i = b
+    return out_vec
+
+
 class SkillsGPMAP(SkillsGP):
     """Class for computing the MAP of a skills GP model.
 
@@ -360,11 +376,16 @@ class SkillsGPMAP(SkillsGP):
 
         # Compute the sparse inverse covariance matrix used by minus_gradient()
         # and minus_hessp() at each iteration.
-        minus_inv_cov_mats = [-scipy.linalg.inv(x) for x in self.cov_mats]
+        minus_inv_cov_mats = [np.ascontiguousarray(-scipy.linalg.inv(x))
+                              for x in self.cov_mats]
         radi_adv_cov_mat = np.full((1, 1), -1 / (self.radi_prior_sd ** 2))
         minus_inv_cov_mat = scipy.sparse.block_diag(
             minus_inv_cov_mats + [radi_adv_cov_mat],
             format='csr')
+        minus_inv_cov_mat_list = numba.typed.List()
+        for x in minus_inv_cov_mats + [radi_adv_cov_mat]:
+            minus_inv_cov_mat_list.append(x)
+        p_breaks = np.cumsum([x.shape[0] for x in minus_inv_cov_mat_list])
 
         def minus_full_loglik(params):
             skills, radi_adv = np.split(params, [self.M * 10])
@@ -377,7 +398,8 @@ class SkillsGPMAP(SkillsGP):
 
         def minus_hessp(params, p):
             skills, radi_adv = params[:-1], params[-1]
-            return -self._hessp(skills, radi_adv, p, minus_inv_cov_mat)
+            return -self._hessp(skills, radi_adv, p, minus_inv_cov_mat_list,
+                                p_breaks)
 
         initial_values = np.append(self._initial_skills, self._initial_radi_adv)
         self.fitted = scipy.optimize.minimize(
@@ -637,7 +659,7 @@ class SkillsGPMAP(SkillsGP):
         # Combine all the gradient terms.
         return prior_lprob_gradient + match_loglik_gradient
 
-    def _hessp(self, skills, radi_adv, p, minus_inv_cov_mat):
+    def _hessp(self, skills, radi_adv, p, minus_inv_cov_mat_list, p_breaks):
         """
         Helper function needed by self.fit().
 
@@ -653,7 +675,10 @@ class SkillsGPMAP(SkillsGP):
         sigma = self.win_prob(cur_skill_diffs)
 
         # Compute the prior probability part of the Hessian * p.
-        prior_lprob_hessian_p = minus_inv_cov_mat @ p
+        prior_lprob_hessian_p = _block_diag_list_mult_jit(
+            minus_inv_cov_mat_list,
+            p,
+            p_breaks)
 
         # Compute the match likelihood part of the Hessian * p.
         # Hessian coefs are the Hessian coefficients of each match apart

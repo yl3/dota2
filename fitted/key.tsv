@@ -14,3 +14,5 @@ iter_newton_scale-1.25_logistic-3_radisd-3.4500-trains.*.gz	data/raw/premium_mat
 ti9_grp_new_params_by_map.*.gz	data/raw/premium_matches.2019-08-19.json.gz	cf6a891d46be1ba186cc62d83368d522314843b6	2019-08-19	mac	2:30:00 1.25	3	3	NULL	4856	144	0
 ti9_full_new_params_by_map.*.gz	data/raw/premium_matches.2019-08-31.json.gz	2afd50a97643ab3fdbd1f9193b2321fc5bb52f46	2019-09-06	mac	2:15:00	1.25	3	3	NULL	4807	193	0
 prof_matches_new_params_by_map.*.gz	data/raw/professional_matches.2019-08-31.json.gz	7aa33ac8f637aceb72f48949e82ede8dafb64e22	2019-09-10	mac	1:40:00	1.25	3	3	NULL	4800	200	0
+ti9_full_new_params_by_map_numba.*.gz	data/raw/premium_matches.2019-08-31.json.gz	984c0e4d1f85e828c7ef652ca88c413024c6b766	2019-09-11	mac	01:25:00	1.25	3	3	NULL	4807	193	0
+ti9_full_new_params_by_map_numba_fastmath.*.gz	data/raw/premium_matches.2019-08-31.json.gz	9c2bfef7ded6a3dd61d61516dcb3e41263be100e	2019-09-11	mac	01:30:00	1.25	3	3	NULL	4807	193	0

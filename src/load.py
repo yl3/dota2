@@ -84,12 +84,13 @@ class MatchupDict:
         self.data = {}
         team_1 = pd.Series(team_1).str.lower()
         team_2 = pd.Series(team_2).str.lower()
-        norm_team_1 = np.where(team_1 <= team_2, team_1, team_2)
-        norm_team_2 = np.where(team_1 <= team_2, team_2, team_1)
+        db_flipped = team_1 > team_2
+        norm_team_1 = np.where(~db_flipped, team_1, team_2)
+        norm_team_2 = np.where(~db_flipped, team_2, team_1)
         time = self._utc_localise_time(time)
         temp_df = pd.DataFrame(
             {'team_1': norm_team_1, 'team_2': norm_team_2, 'map_i': map_i,
-             'map_idx': time.index})
+             'map_idx': time.index, 'flipped': db_flipped})
         temp_df.index = time.values
         for key, sub_df in temp_df.groupby(['team_1', 'team_2', 'map_i']):
             self.data[key] = sub_df
@@ -118,7 +119,9 @@ class MatchupDict:
             tolerance (float): Argument for :func:`pandas.Index.get_loc`.
 
         Returns:
-            tuple: A tuple of (<map_idx>, <flipped>).
+            tuple: A tuple of (<map_idx>, <flipped>), where if `flipped` is
+                True, then `team_1` is the radiant team of the returned map
+                index.
         """
         time = pd.to_datetime(time)
         team_1 = team_1.lower()
@@ -129,18 +132,18 @@ class MatchupDict:
             time = time.tz_convert('UTC')
         if team_1 <= team_2:
             key = (team_1, team_2, map_i)
-            flipped = False
+            qry_flipped = False
         else:
             key = (team_2, team_1, map_i)
-            flipped = True
+            qry_flipped = True
         if key not in self.data:
             ret = (np.nan, np.nan)
         else:
             df = self.data[key]
             idx = df.index.get_loc(time, method=method, tolerance=tolerance)
             assert isinstance(idx, int)
-            map_idx = df.iloc[idx]['map_idx']
-            ret = (map_idx, flipped)
+            map_idx, flipped = df.iloc[idx][['map_idx', 'flipped']].tolist()
+            ret = (map_idx, flipped != qry_flipped)
         return ret
 
     def query_l(self, team_1, team_2, map_i, time, method='nearest',
@@ -241,12 +244,8 @@ class MatchDF:
         """
         if not hasattr(self, '_matchup_dict'):
             self._matchup_dict = MatchupDict.from_match_df(self)
-        temp = self._matchup_dict.query_l(team_1, team_2, map_i, time, method,
-                                          tolerance)
-        out_df = self.df.loc[temp.map_id].reset_index().assign(
-            db_flipped=temp.flipped.values)
-        out_df.matchId = out_df.matchId.astype(pd.Int64Dtype())
-        out_df.index = temp.index
+        out_df = self._matchup_dict.query_l(team_1, team_2, map_i, time, method,
+                                            tolerance)
         return out_df
 
     def _validate_matches_df(self, matches_df):

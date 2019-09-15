@@ -1,5 +1,25 @@
 # Notes
 
+## 2019-09-15
+
+Numba-fitted results seem to make as much sense as pure Python-fitted!
+
+TODO:
+* A template for benchmarking individual predictions.
+* A template for performing forward predictions of unplayed matches.
+
+## 2019-09-11
+
+Whereas fitting the 5,000 premium matches took 2 min 50 sec previously (see [`notebooks/2019-09-09.data_for_prof_matches.ipynb`]()), with numba we can get it down to 2 min 28 sec with numba and 1 min 57 sec with numba+fastmath enabled ([`notebooks/2019-09-09.optim_blockdiag_matmul.ipynb`]()).
+
+In order for numba to work, the list had to be a `numba.typed.List`. Furthermore, both `List(cov_mat_list)` and `List(tuple(cov_mat_list))` are slow commands to execute and will fail in our custom numba matrix multiplication function if the list contains more than 1,000 items. Instead, the list needs to be appended to iteratively.
+
+    l = numba.typed.List()
+    for x in cov_mat_list:
+        l.append(x)
+
+Interestingly when fitting the full TI9 matches, whether using fastmath or not did not make a difference in the speed.
+
 ## 2019-09-09
 
 Fitting 10,000 matches takes around 8 minutes (see [`notebooks/2019-09-09.data_for_prof_matches.ipynb`]()).
