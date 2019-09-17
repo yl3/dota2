@@ -1,5 +1,13 @@
 # Notes
 
+## 2019-09-16
+
+Checked manually why we are getting slightly different Fairlay odds results between the original TI9 Fairlay odds comparison [`notebooks/2019-09-06.fairlay_ti9_full_tourney.ipynb`]() and the new comparison performed using a Fairlay benchmarking notebook [`notebooks/fairlay_benchmarking_template.2019-09-15.ipynb`]().
+
+In several instances (first 8 or so), the new template (which at the time of comparison only considered the earliest available odds) had higher odds than the previous comparison, which used later odds. There is only one example to the contrary, the Secret v Mineski 1st map, where the early odds had a higher odds for betting against Secret (which was the wrong result). Thus, the early odds are overestimating certain matches.
+
+Come to think of it, betting on the earliest odds means ignoring some recent results. Thus, it might be better to choose the latest odds that were provided before the start of the match.
+
 ## 2019-09-15
 
 Numba-fitted results seem to make as much sense as pure Python-fitted!
