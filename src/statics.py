@@ -31,6 +31,7 @@ FAIRLAY_TEAM_NAME_TR = {
     'prime': 'The Prime NND',
     'sunrise': 'VG.Sunrise',
     'flytomoon': 'FlyToMoon',
+    'infamous': 'Infamous Gaming',
 }
 
 

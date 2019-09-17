@@ -11,6 +11,7 @@ import sklearn.metrics
 
 from .models import gp
 from . import load
+from . import statics
 
 
 def win_prob_mat(team_skills, logistic_scale):
@@ -489,6 +490,110 @@ class MatchPred(load.MatchDF):
                         .pred_win_prob_unknown_side.sum().unstack())
         return total, expected, wins
 
+    def merge_fairlay_df(self, fairlay_df, max_timediff_mins=1440):
+        """Merge with a Fairlay odds data frame.
+
+        Args:
+            fairlay_df (pandas.DataFrame): A Pandas data frame with Fairlay odds
+                data.
+            timediff_cutoff_mins (int): Number of minutes a match closing date
+                is allowed to be after the match to be considered the correct
+                match.
+        """
+        self._validate_fairlay_df(fairlay_df)
+
+        # For now, only keep individual maps.
+        sel = fairlay_df.dota_market_type == 'map'
+        fairlay_df = fairlay_df.loc[sel]
+
+        # Compute an index.
+        fairlay_df = (fairlay_df.sort_values('LastSoftCh')
+                      .groupby(['ID', 'wager_type', 'RunnerName'])
+                      .apply(lambda d: d.iloc[0]))
+
+        # Add team 1 and team 2 to the fairlay data frame.
+        fairlay_df_teams = fairlay_df.Title.str.extract(r'^(.+) vs. (.+)$')
+        fairlay_df['team_1'] = fairlay_df_teams[0]
+        fairlay_df['team_2'] = fairlay_df_teams[1]
+
+        # Normalise team names.
+        for colname in ['team_1', 'team_2', 'RunnerName']:
+            fairlay_df[colname] = statics.fairlay_team_tr(fairlay_df[colname])
+
+        # Match Fairlay and Datdota maps.
+        matched_map_ids = self.query_maps(
+            fairlay_df['team_1'],
+            fairlay_df['team_2'],
+            (fairlay_df.Descr.str[0].astype(int) - 1),
+            fairlay_df.ClosD)
+        matched_map_ids.index = fairlay_df.index
+        fairlay_df_pred = fairlay_df.merge(matched_map_ids, left_index=True,
+                                           right_index=True)
+        fairlay_df_pred = fairlay_df_pred.loc[fairlay_df_pred.map_id.notna()]
+        fairlay_df_pred = fairlay_df_pred.merge(self.df, left_on='map_id',
+                                                right_index=True)
+
+        # Compute additional variables.
+        fairlay_df_pred['team_1_won'] = np.where(
+            ~fairlay_df_pred.flipped,
+            fairlay_df_pred.radiantVictory,
+            ~fairlay_df_pred.radiantVictory)
+        fairlay_df_pred['team_1_win_prob'] = np.where(
+            ~fairlay_df_pred.flipped,
+            fairlay_df_pred.pred_win_prob_unknown_side,
+            1 - fairlay_df_pred.pred_win_prob_unknown_side)
+        fairlay_df_pred['startDate'] = (fairlay_df_pred['startDate']
+                                        .dt.tz_localize('UTC')
+                                        .dt.tz_convert('US/Eastern'))
+        fairlay_df_pred['time_diff_mins'] = \
+            ((fairlay_df_pred.ClosD - fairlay_df_pred.startDate)
+             / pd.Timedelta(minutes=1))
+        fairlay_df_pred['ev'] = np.where(
+            fairlay_df_pred.wager_type == 'on',
+            fairlay_df_pred.team_1_win_prob * fairlay_df_pred.odds_c - 1,
+            (1 - fairlay_df_pred.team_1_win_prob) * fairlay_df_pred.odds_c - 1)
+        on_team_1_correct = ((fairlay_df_pred.wager_type == 'on')
+                             & fairlay_df_pred.team_1_won)
+        against_team_1_correct = ((fairlay_df_pred.wager_type == 'against')
+                                  & ~fairlay_df_pred.team_1_won)
+        fairlay_df_pred['outcome'] = np.where(
+            on_team_1_correct | against_team_1_correct,
+            fairlay_df_pred.odds_c - 1,
+            -1)
+
+        # Compute selectors.
+        # 'correct_match' - must have closed this number of minutes after the
+        #     match start.
+        # 'before_match' - whether the last soft change occurred before the
+        #     match started.
+        is_odds_underdog = \
+            (fairlay_df_pred.groupby(fairlay_df_pred.index.droplevel(1))['odds']
+             .transform(lambda x: x > min(x)))
+        is_odds_favourite = \
+            (fairlay_df_pred.groupby(fairlay_df_pred.index.droplevel(1))['odds']
+             .transform(lambda x: x < max(x)))
+        sel = pd.DataFrame({
+            'correct_match':
+                fairlay_df_pred['time_diff_mins'].abs() <= max_timediff_mins,
+            'before_match': (fairlay_df_pred['LastSoftCh']
+                             <= fairlay_df_pred['startDate']),
+            'pos_ev': fairlay_df_pred['ev'] > 0,
+            'pred_underdog':
+                (fairlay_df_pred.team_1_win_prob > 0.5)
+                ^ (fairlay_df_pred.wager_type == 'on'),
+            'pred_favourite':
+                (fairlay_df_pred.team_1_win_prob < 0.5)
+                ^ (fairlay_df_pred.wager_type == 'on'),
+            'odds_underdog': is_odds_underdog,
+            'odds_favourite': is_odds_favourite,
+            'map1': fairlay_df_pred.Descr == '1st Map',
+            'map2': fairlay_df_pred.Descr == '2nd Map',
+            'map3': fairlay_df_pred.Descr == '3rd Map',
+            'map4': fairlay_df_pred.Descr == '4rd Map',
+            'map5': fairlay_df_pred.Descr == '5rd Map',
+        })
+        return fairlay_df_pred, sel
+
     def _validate_match_pred(self, match_pred):
         """Validate columns in the match predictions table."""
         expected_columns = set([
@@ -603,3 +708,15 @@ class MatchPred(load.MatchDF):
                                  showlegend=True, hovertext=hovertext,
                                  hoverinfo="text")
         return data
+
+    def _validate_fairlay_df(self, fairlay_df):
+        """Verify that a Fairlay data frame has the required columns."""
+        required_cols = set([
+            'Descr',
+            'ID',
+            'RunnerName',
+            'Title',
+            'odds_c',
+            'wager_type'])
+        if not required_cols <= set(fairlay_df.reset_index().columns):
+            raise ValueError("Some expected columns are missing in fairlay_df.")
