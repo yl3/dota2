@@ -16,7 +16,7 @@ def _emp_poibin_ci(win_probs, win_amt, loss_amt, alpha):
     return np.quantile(total_reward, (alpha, 1 - alpha))
 
 
-def fairlay_outcome_printer(fairlay_df, bool_vec, title=None):
+def compute_fairlay_outcomes(fairlay_df, bool_vec):
     fairlay_df = fairlay_df.loc[bool_vec]
 
     # Only keep the latest odds we can find for each map.
@@ -27,10 +27,6 @@ def fairlay_outcome_printer(fairlay_df, bool_vec, title=None):
          .reset_index()
          .groupby(grp_cols, as_index=False)
          .apply(lambda df: df.iloc[-1]))
-
-    if title is not None:
-        print(title + "\n" + "-" * len(title))
-    print("Maps included: {}".format(fairlay_df.shape[0]))
 
     # Compute empirical confidence interval for total reward.
     N = 100000
@@ -50,9 +46,21 @@ def fairlay_outcome_printer(fairlay_df, bool_vec, title=None):
 
     # Compute approximated confidence interval for total reward.
     total_ev = fairlay_df.ev.sum()
+    total_outcome = fairlay_df.outcome.sum()
+    n_matches = fairlay_df.shape[0]
+    return total_outcome, total_ev, empirical_ci, n_matches
+
+
+def fairlay_outcome_printer(fairlay_df, bool_vec, title=None):
+    res = compute_fairlay_outcomes(fairlay_df, bool_vec)
+    total_outcome, total_ev, empirical_ci, n_matches = res
+
+    if title is not None:
+        print(title + "\n" + "-" * len(title))
+    print("Maps included: {}".format(n_matches))
     print("Total EV: {:.2f} ({:.2f}, {:.2f})".format(
         total_ev,
         empirical_ci[0],
         empirical_ci[1]))
-    print("Total outcome: {}".format(fairlay_df.outcome.sum()))
+    print("Total outcome: {}".format(total_outcome))
     print("")

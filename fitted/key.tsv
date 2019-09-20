@@ -1,19 +1,31 @@
-filename	dataset	commit	completion_date	machine	usertime	time_scale_years	logistic_scale	radi_prior_sd	series_chunk_size	train_samples	test_samples	skip_matches
-iterative_MAP.0.tsv.gz	data/raw/premium_matches.2019-08-11.json.gz	e4da7fdb05d5ccaddfcf9da17fdcfead819cc856	09/08/2019	t3.medium	48:36:50	2	1	10	NULL	2500	2500	NULL
-iterative_MAP.1.tsv.gz	data/raw/premium_matches.2019-08-11.json.gz	a44c8d5d440ada9c47a881565dfcae0e4b8193e0	09/08/2019	t3.medium	36:00:00	2	1	10	1	2500	2500	NULL
-newton_predictions.5-chunks.tsv.*.gz	data/raw/premium_matches.2019-08-11.json.gz	89ccd265e36a356d25d01734bbb9f4f22265a60a	09/08/2019	mac	08:20:00	2	1	10	5	2500	2500	NULL
-iterative_fitting-1.25_3_3.5-chunks.tsv.*.gz	data/raw/premium_matches.2019-08-11.json.gz	03e56f9ae7e9ae5cc8e87e8a7173cc1fedf7e159	09/08/2019	t3.medium	10:30:00	1.25	3	3	5	2500	2500	NULL
-iter_newton_scale-1.25_logistic-3_radisd-3.1000-trains.*.gz	data/raw/premium_matches.2019-08-11.json.gz	fe048c5104caeafd13c97f717d10da6ef1977c5c	13/08/2019	c5.large	NULL	1.25	3	3	5	1000	500	3500
-iter_newton_scale-1.25_logistic-3_radisd-3.1500-trains.*.gz	data/raw/premium_matches.2019-08-11.json.gz	fe048c5104caeafd13c97f717d10da6ef1977c5c	13/08/2019	c5.large	NULL	1.25	3	3	5	1500	500	3000
-iter_newton_scale-1.25_logistic-3_radisd-3.2000-trains.*.gz	data/raw/premium_matches.2019-08-11.json.gz	fe048c5104caeafd13c97f717d10da6ef1977c5c	13/08/2019	c5.large	NULL	1.25	3	3	5	2000	500	2500
-iter_newton_scale-1.25_logistic-3_radisd-3.2500-trains.*.gz	data/raw/premium_matches.2019-08-11.json.gz	fe048c5104caeafd13c97f717d10da6ef1977c5c	13/08/2019	c5.large	NULL	1.25	3	3	5	2500	500	2000
-iter_newton_scale-1.25_logistic-3_radisd-3.3000-trains.*.gz	data/raw/premium_matches.2019-08-11.json.gz	fe048c5104caeafd13c97f717d10da6ef1977c5c	13/08/2019	c5.large	NULL	1.25	3	3	5	3000	500	1500
-iter_newton_scale-1.25_logistic-3_radisd-3.3500-trains.*.gz	data/raw/premium_matches.2019-08-11.json.gz	fe048c5104caeafd13c97f717d10da6ef1977c5c	13/08/2019	c5.large	NULL	1.25	3	3	5	3500	500	1000
-iter_newton_scale-1.25_logistic-3_radisd-3.4000-trains.*.gz	data/raw/premium_matches.2019-08-11.json.gz	fe048c5104caeafd13c97f717d10da6ef1977c5c	13/08/2019	c5.large	NULL	1.25	3	3	5	4000	500	500
-iter_newton_scale-1.25_logistic-3_radisd-3.4500-trains.*.gz	data/raw/premium_matches.2019-08-11.json.gz	fe048c5104caeafd13c97f717d10da6ef1977c5c	13/08/2019	c5.large	NULL	1.25	3	3	5	4500	500	0
-ti9_grp_new_params_by_map.*.gz	data/raw/premium_matches.2019-08-19.json.gz	cf6a891d46be1ba186cc62d83368d522314843b6	19/08/2019	mac	02:30:00	1.25	3	3	NULL	4856	144	0
-ti9_full_new_params_by_map.*.gz	data/raw/premium_matches.2019-08-31.json.gz	2afd50a97643ab3fdbd1f9193b2321fc5bb52f46	06/09/2019	mac	02:15:00	1.25	3	3	NULL	4807	193	0
-prof_matches_new_params_by_map.*.gz	data/raw/professional_matches.2019-08-31.json.gz	7aa33ac8f637aceb72f48949e82ede8dafb64e22	10/09/2019	mac	01:40:00	1.25	3	3	NULL	4800	200	0
-ti9_full_new_params_by_map_numba.*.gz	data/raw/premium_matches.2019-08-31.json.gz	984c0e4d1f85e828c7ef652ca88c413024c6b766	11/09/2019	mac	01:25:00	1.25	3	3	NULL	4807	193	0
-ti9_full_new_params_by_map_numba_fastmath.*.gz	data/raw/premium_matches.2019-08-31.json.gz	9c2bfef7ded6a3dd61d61516dcb3e41263be100e	11/09/2019	mac	01:30:00	1.25	3	3	NULL	4807	193	0
-ti9_full_new_params_by_series.*.gz	data/raw/premium_matches.2019-08-31.json.gz	c40627982c4933eb44cfe517d1fdc2ab017eb5be	17/09/2019	mac	01:05:00	1.25	3	3	1	4807	193	0
+filename	dataset	commit	completion_date	machine	usertime	time_scale_years	logistic_scale	radi_prior_sd	series_chunk_size	train_samples	test_samples	skip_matches	TI9 groups AUC	TI9 playoffs AUC	avg EV>0 exp	avg EV>0 obs	avg EV>=0.1 exp	avg EV>=0.1 obs	avg EV>=0.2 exp	avg EV>=0.2 obs
+iterative_MAP.0.tsv.gz	data/raw/premium_matches.2019-08-11.json.gz	e4da7fdb05d5ccaddfcf9da17fdcfead819cc856	09/08/2019	t3.medium	48:36:50	2.00	1	10	NULL	2500	2500	NULL								
+iterative_MAP.1.tsv.gz	data/raw/premium_matches.2019-08-11.json.gz	a44c8d5d440ada9c47a881565dfcae0e4b8193e0	09/08/2019	t3.medium	36:00:00	2.00	1	10	1	2500	2500	NULL								
+newton_predictions.5-chunks.tsv.*.gz	data/raw/premium_matches.2019-08-11.json.gz	89ccd265e36a356d25d01734bbb9f4f22265a60a	09/08/2019	mac	08:20:00	2.00	1	10	5	2500	2500	NULL								
+iterative_fitting-1.25_3_3.5-chunks.tsv.*.gz	data/raw/premium_matches.2019-08-11.json.gz	03e56f9ae7e9ae5cc8e87e8a7173cc1fedf7e159	09/08/2019	t3.medium	10:30:00	1.25	3	3	5	2500	2500	NULL								
+iter_newton_scale-1.25_logistic-3_radisd-3.1000-trains.*.gz	data/raw/premium_matches.2019-08-11.json.gz	fe048c5104caeafd13c97f717d10da6ef1977c5c	13/08/2019	c5.large	NULL	1.25	3	3	5	1000	500	3500								
+iter_newton_scale-1.25_logistic-3_radisd-3.1500-trains.*.gz	data/raw/premium_matches.2019-08-11.json.gz	fe048c5104caeafd13c97f717d10da6ef1977c5c	13/08/2019	c5.large	NULL	1.25	3	3	5	1500	500	3000								
+iter_newton_scale-1.25_logistic-3_radisd-3.2000-trains.*.gz	data/raw/premium_matches.2019-08-11.json.gz	fe048c5104caeafd13c97f717d10da6ef1977c5c	13/08/2019	c5.large	NULL	1.25	3	3	5	2000	500	2500								
+iter_newton_scale-1.25_logistic-3_radisd-3.2500-trains.*.gz	data/raw/premium_matches.2019-08-11.json.gz	fe048c5104caeafd13c97f717d10da6ef1977c5c	13/08/2019	c5.large	NULL	1.25	3	3	5	2500	500	2000								
+iter_newton_scale-1.25_logistic-3_radisd-3.3000-trains.*.gz	data/raw/premium_matches.2019-08-11.json.gz	fe048c5104caeafd13c97f717d10da6ef1977c5c	13/08/2019	c5.large	NULL	1.25	3	3	5	3000	500	1500								
+iter_newton_scale-1.25_logistic-3_radisd-3.3500-trains.*.gz	data/raw/premium_matches.2019-08-11.json.gz	fe048c5104caeafd13c97f717d10da6ef1977c5c	13/08/2019	c5.large	NULL	1.25	3	3	5	3500	500	1000								
+iter_newton_scale-1.25_logistic-3_radisd-3.4000-trains.*.gz	data/raw/premium_matches.2019-08-11.json.gz	fe048c5104caeafd13c97f717d10da6ef1977c5c	13/08/2019	c5.large	NULL	1.25	3	3	5	4000	500	500								
+iter_newton_scale-1.25_logistic-3_radisd-3.4500-trains.*.gz	data/raw/premium_matches.2019-08-11.json.gz	fe048c5104caeafd13c97f717d10da6ef1977c5c	13/08/2019	c5.large	NULL	1.25	3	3	5	4500	500	0								
+ti9_grp_new_params_by_map.*.gz	data/raw/premium_matches.2019-08-19.json.gz	cf6a891d46be1ba186cc62d83368d522314843b6	19/08/2019	mac	02:30:00	1.25	3	3	NULL	4856	144	0								
+ti9_full_new_params_by_map.*.gz	data/raw/premium_matches.2019-08-31.json.gz	2afd50a97643ab3fdbd1f9193b2321fc5bb52f46	06/09/2019	mac	02:15:00	1.25	3	3	NULL	4807	193	0	0.663	0.619	0.153	0.097	0.258	0.202	0.370	0.249
+prof_matches_new_params_by_map.*.gz	data/raw/professional_matches.2019-08-31.json.gz	7aa33ac8f637aceb72f48949e82ede8dafb64e22	10/09/2019	mac	01:40:00	1.25	3	3	NULL	4800	200	0								
+ti9_full_new_params_by_map_numba.*.gz	data/raw/premium_matches.2019-08-31.json.gz	984c0e4d1f85e828c7ef652ca88c413024c6b766	11/09/2019	mac	01:25:00	1.25	3	3	NULL	4807	193	0	0.661	0.592	0.153	0.120	0.259	0.215	0.353	0.165
+ti9_full_new_params_by_map_numba_fastmath.*.gz	data/raw/premium_matches.2019-08-31.json.gz	9c2bfef7ded6a3dd61d61516dcb3e41263be100e	11/09/2019	mac	01:30:00	1.25	3	3	NULL	4807	193	0								
+ti9_full_new_params_by_series.*.gz	data/raw/premium_matches.2019-08-31.json.gz	c40627982c4933eb44cfe517d1fdc2ab017eb5be	17/09/2019	mac	01:05:00	1.25	3	3	1	4807	193	0	0.652	0.609	0.149	0.068	0.259	0.166	0.351	0.109
+ti9_full_new_params_by_map_ls-0.5.*.gz	data/raw/premium_matches.2019-08-31.json.gz	a802b63c7e769454ba4a38805ca08e7e3dc3fc7f	18/09/2019	c5.large	04:20:00	1.25	0.50	3	1	4807	193	0	0.656	0.565	0.336	0.125	0.402	0.143	0.488	0.069
+ti9_full_new_params_by_map_ls-1.*.gz	data/raw/premium_matches.2019-08-31.json.gz	a802b63c7e769454ba4a38805ca08e7e3dc3fc7f	18/09/2019	c5.large	05:15:00	1.25	1.00	3	1	4807	193	0	0.659	0.594	0.222	0.115	0.309	0.161	0.400	0.328
+ti9_full_new_params_by_map_ls-2.*.gz	data/raw/premium_matches.2019-08-31.json.gz	a802b63c7e769454ba4a38805ca08e7e3dc3fc7f	18/09/2019	c5.large	04:45:00	1.25	2.00	3	1	4807	193	0	0.663	0.602	0.134	0.112	0.228	0.318	0.331	0.242
+ti9_full_new_params_by_map_ls-4.*.gz	data/raw/premium_matches.2019-08-31.json.gz	a802b63c7e769454ba4a38805ca08e7e3dc3fc7f	18/09/2019	c5.large	02:05:00	1.25	4.00	3	1	4807	193	0	0.662	0.587	0.115	0.086	0.206	0.256	0.298	0.287
+ti9_full_new_params_by_map_ls-6.*.gz	data/raw/premium_matches.2019-08-31.json.gz	a802b63c7e769454ba4a38805ca08e7e3dc3fc7f	18/09/2019	c5.large	01:40:00	1.25	6.00	3	1	4807	193	0	0.652	0.546	0.134	0.035	0.242	0.232	0.328	0.106
+ti9_full_new_params_by_map_ls-8.*.gz	data/raw/premium_matches.2019-08-31.json.gz	a802b63c7e769454ba4a38805ca08e7e3dc3fc7f	18/09/2019	c5.large	01:25:00	1.25	8.00	3	1	4807	193	0	0.647	0.530	0.166	0.040	0.277	0.172	0.381	0.153
+ti9_full_new_params_by_map_ts-0.5.*.gz	data/raw/premium_matches.2019-08-31.json.gz	a802b63c7e769454ba4a38805ca08e7e3dc3fc7f	18/09/2019	c5.large	01:30:00	0.50	3	3	1	4807	193	0	0.653	0.604	0.225	0.112	0.323	0.173	0.449	0.179
+ti9_full_new_params_by_map_ts-0.75.*.gz	data/raw/premium_matches.2019-08-31.json.gz	a802b63c7e769454ba4a38805ca08e7e3dc3fc7f	18/09/2019	c5.large	01:55:00	0.75	3	3	1	4807	193	0	0.661	0.595	0.190	0.102	0.288	0.201	0.400	0.208
+ti9_full_new_params_by_map_ts-1.0.*.gz	data/raw/premium_matches.2019-08-31.json.gz	a802b63c7e769454ba4a38805ca08e7e3dc3fc7f	18/09/2019	c5.large	02:05:00	1.00	3	3	1	4807	193	0	0.663	0.594	0.164	0.101	0.266	0.188	0.373	0.152
+ti9_full_new_params_by_map_ts-1.5.*.gz	data/raw/premium_matches.2019-08-31.json.gz	a802b63c7e769454ba4a38805ca08e7e3dc3fc7f	18/09/2019	c5.large	02:30:00	1.50	3	3	1	4807	193	0	0.660	0.579	0.146	0.118	0.246	0.235	0.330	0.220
+ti9_full_new_params_by_map_ts-1.75.*.gz	data/raw/premium_matches.2019-08-31.json.gz	a802b63c7e769454ba4a38805ca08e7e3dc3fc7f	18/09/2019	c5.large	02:55:00	1.75	3	3	1	4807	193	0	0.660	0.595	0.141	0.121	0.235	0.259	0.325	0.216
+ti9_full_new_params_by_map_ts-2.0.*.gz	data/raw/premium_matches.2019-08-31.json.gz	a802b63c7e769454ba4a38805ca08e7e3dc3fc7f	18/09/2019	c5.large	03:05:00	2.00	3	3	1	4807	193	0	0.664	0.579	0.129	0.112	0.229	0.278	0.325	0.288
