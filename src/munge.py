@@ -18,12 +18,17 @@ def make_match_players_matrix(radiant_player_ids, dire_player_ids):
     return match_players
 
 
-def player_id_to_player_name(player_ids, player_names, team_ids, team_names):
+def player_id_to_player_name(player_ids, player_names, team_ids, team_names,
+                             start_times=None):
     """Make a series of player names indexed by player IDs.
 
     Args:
         player_ids (list): List of lists of player IDs.
         player_names (list): List of lists of player names.
+        team_ids (pandas.Series): An array of team IDs for each match.
+        team_names (pandas.Series): An array of team names for each match.
+        start_times (pandas.Series): An array of start times corresponding to
+            each entry.
     """
     output_series = pd.DataFrame(
         {
@@ -32,6 +37,10 @@ def player_id_to_player_name(player_ids, player_names, team_ids, team_names):
             "team_id": np.repeat(team_ids.values, [5] * len(team_ids))
         },
         index=itertools.chain.from_iterable(list(player_ids)))
+    if start_times is not None:
+        output_series['last_game'] = np.repeat(start_times.values,
+                                                 [5] * len(start_times))
+        output_series.sort_values('last_game', inplace=True)
     return output_series[~output_series.index.duplicated(keep='last')]
 
 
@@ -51,7 +60,8 @@ def match_df_to_player_df(match_df):
         pd.concat([match_df.radiant_players, match_df.dire_players]),
         pd.concat([match_df.radiant_nicknames, match_df.dire_nicknames]),
         pd.concat([match_df.radiant_valveId, match_df.dire_valveId]),
-        pd.concat([match_df.radiant_name, match_df.dire_name]))
+        pd.concat([match_df.radiant_name, match_df.dire_name]),
+        pd.concat([match_df.startDate, match_df.startDate]))
     return players
 
 

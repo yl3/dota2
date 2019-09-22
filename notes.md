@@ -1,5 +1,27 @@
 # Notes
 
+## 2019-09-22
+
+### Information fields to print out in the Fairlay ticker
+
+* Timestamp
+* Flags
+    * Warning flag `!` for anything to be of concern, such as new team composition (team played fewer than 10 games with current roster), long time since last game by a player (e.g. 2 months) or low training match count for a player (e.g. 50).
+* Asterisks indicating an EV above `*` = 0, `**` = 0.5, `***` = 1.0, `****` = 2.0, `*****` = 3.0.
+* Title of the competition.
+* Wager type - on or against
+* Runner name that is being betted on or against and its ID.
+* The opposing team and its ID.
+* Odds offered, adjusted by commission.
+* Predicted win probability.
+* EV
+* Breakeven odds.
+* Lowest number of training games by the involved players.
+* Earliest previous match of the involved players.
+* Number of games since the same roster.
+* Team 1 players, then team 2 players, in the following format.
+    * Player name, player ID, training matches, date of last match.
+
 ## 2019-09-21
 
 When building an automated script for polling Fairlay odds periodically and evaluating them, we only want to consider pre-match odds as opposed to live odds.

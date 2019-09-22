@@ -122,6 +122,8 @@ FAIRLAY_TEAM_NAME_TR = {
     'sunrise': 'VG.Sunrise',
     'flytomoon': 'FlyToMoon',
     'infamous': 'Infamous Gaming',
+    'cdec gaming': 'CDEC',
+    'luminous team': 'KG.Luminous'
 }
 
 

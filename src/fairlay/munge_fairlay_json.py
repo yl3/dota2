@@ -158,7 +158,6 @@ def fairlay_json_to_df(fairlay_json):
     pat = r" ([+-]?\d+\.5)$"
     df['handicap'] = df.RunnerName.str.extract(pat).astype(np.float).fillna(0.0)
     df['RunnerName'] = df['RunnerName'].str.replace(pat, "")
-    df['map_i'] = compute_map_i(df)
 
     # Breakeven win probabilities with and without the commission.
     df['winp'] = (1 / df['odds'])
@@ -179,6 +178,6 @@ def fairlay_json_to_df(fairlay_json):
         df[colname] = df[colname].astype(str)
 
     norm_teams = compute_normalised_team_names(df)
-    df = pd.concat([df, norm_teams])
+    df = pd.concat([df, norm_teams], 1)
     df = _reorder_fairlay_df_cols(df)
     return df

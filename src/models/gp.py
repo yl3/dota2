@@ -357,6 +357,18 @@ class SkillsGPMAP(SkillsGP):
             self._initial_radi_adv = 0.0
         self.fitted = None
 
+    def from_match_df(match_df_obj, initial_skills=None, initial_radi_adv=None,
+                      *args, **kwargs):
+        """Initialise from a MatchDF object."""
+        return SkillsGPMAP(
+            initial_skills,
+            initial_radi_adv,
+            match_df_obj.players_mat,
+            match_df_obj.df.startTimestamp.values,
+            match_df_obj.df.radiantVictory,
+            *args,
+            **kwargs)
+
     def fit(self, print_fit=False, **kwargs):
         """Perform a Newton-Raphson fit of the model.
 
