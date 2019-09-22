@@ -1,7 +1,13 @@
 """Helper functions for analysing Fairlay odds results."""
 
+import json
+import re
+import requests
+
 import numpy as np
 import scipy
+
+from .fairlay_constants import FAIRLAY_BASE_URL
 
 
 def _emp_poibin_ci(win_probs, win_amt, loss_amt, alpha):
@@ -64,3 +70,29 @@ def fairlay_outcome_printer(fairlay_df, bool_vec, title=None):
         empirical_ci[1]))
     print("Total outcome: {}".format(total_outcome))
     print("")
+
+
+def fetch_markets(base_url=FAIRLAY_BASE_URL, qry_params=None):
+    """Fetch 2 data from fairlay.com.
+
+    Currently only supporting category 32, i.e. esports. See
+    https://fairlay.com/api/#/data/?id=market-categories. Also, only Dota 2
+    markets, i.e. those with 'dota' in the competition name, are returned.
+    """
+    MAX_RECORDS = 100000
+    params = {'Cat': 32, 'ToID': MAX_RECORDS, 'NoZombie': True}
+    if qry_params is not None:
+        params.update(qry_params)
+    if not base_url.endswith('/'):
+        base_url += '/'
+    url = base_url + json.dumps(params)
+    res = requests.get(url)
+    if res.status_code == 200:
+        n_records = len(res.json())
+        if n_records == MAX_RECORDS:
+            raise ValueError('Did not fetch all records.')
+        dota2_comps = [j for j in res.json()
+                       if re.search("dota", j['Comp'], re.IGNORECASE)]
+        return dota2_comps
+    else:
+        raise Exception(f"Status code is not 200: {res.text}")

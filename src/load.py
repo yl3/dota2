@@ -2,8 +2,11 @@
 
 
 import json
+import requests
+
 import numpy as np
 import pandas as pd
+
 from . import munge
 
 
@@ -312,3 +315,15 @@ class MatchDF:
         # Make sure the matches are ordered by start time.
         assert all(matches_df.startTimestamp
                    == matches_df.startTimestamp.sort_values().values)
+
+
+def fetch_matches(tier='premium'):
+    """Fetch matches from Datdota.
+
+    returns:
+        MatchDF: The Datdota match object.
+    """
+    url = 'http://www.datdota.com/api/matches?tier=' + tier
+    matches_req = requests.get(url)
+    matches_df = MatchDF.from_json(matches_req.json()['data'])
+    return matches_df
