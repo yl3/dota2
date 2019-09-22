@@ -1,5 +1,13 @@
 # Notes
 
+## 2019-09-21
+
+When building an automated script for polling Fairlay odds periodically and evaluating them, we only want to consider pre-match odds as opposed to live odds.
+
+Turns out that this can be set by using the filter of market *Status* == 2.
+
+The TI9 time differences between match start time and last (soft) change or close date are computed in [`notebooks/20190921.fairlay_vs_datdota_times.ipynb`]().
+
 ## 2019-09-16
 
 Checked manually why we are getting slightly different Fairlay odds results between the original TI9 Fairlay odds comparison [`notebooks/2019-09-06.fairlay_ti9_full_tourney.ipynb`]() and the new comparison performed using a Fairlay benchmarking notebook [`notebooks/fairlay_benchmarking_template.2019-09-15.ipynb`]().
