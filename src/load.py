@@ -3,6 +3,7 @@
 
 import json
 import requests
+import tenacity
 
 import numpy as np
 import pandas as pd
@@ -47,6 +48,9 @@ def matches_json_to_df(matches_json):
     matches_df.set_index("matchId", inplace=True)
     col_names = ['startDate', 'league_name', 'radiant_name', 'dire_name',
                  'radiantVictory', 'radiant_nicknames', 'dire_nicknames']
+    for colname in ['radiant_nicknames', 'dire_nicknames', 'radiant_players',
+                    'dire_players']:
+        matches_df[colname] = matches_df[colname].apply(lambda x: tuple(x))
     cols = np.concatenate(
         [col_names, matches_df.columns[~matches_df.columns.isin(col_names)]])
     matches_df = matches_df.loc[:, cols]
@@ -317,13 +321,21 @@ class MatchDF:
                    == matches_df.startTimestamp.sort_values().values)
 
 
+@tenacity.retry(wait=tenacity.wait_exponential(multiplier=1, min=2, max=30),
+                stop=tenacity.stop_after_attempt(10))
+def _download_datdota_data(tier):
+    url = 'http://www.datdota.com/api/matches?tier=' + tier
+    matches_req = requests.get(url)
+    assert matches_req.status_code == 200
+    return matches_req
+
+
 def fetch_matches(tier='premium'):
     """Fetch matches from Datdota.
 
     returns:
         MatchDF: The Datdota match object.
     """
-    url = 'http://www.datdota.com/api/matches?tier=' + tier
-    matches_req = requests.get(url)
+    matches_req = _download_datdota_data(tier)
     matches_df = MatchDF.from_json(matches_req.json()['data'])
     return matches_df

@@ -3,6 +3,7 @@
 import json
 import re
 import requests
+import tenacity
 
 import numpy as np
 import scipy
@@ -72,6 +73,14 @@ def fairlay_outcome_printer(fairlay_df, bool_vec, title=None):
     print("")
 
 
+@tenacity.retry(wait=tenacity.wait_exponential(multiplier=1, min=2, max=30),
+                stop=tenacity.stop_after_attempt(10))
+def _fetch_fairlay_data(url):
+    req = requests.get(url)
+    assert req.status_code == 200
+    return req
+
+
 def fetch_markets(base_url=FAIRLAY_BASE_URL, qry_params=None):
     """Fetch 2 data from fairlay.com.
 
@@ -86,13 +95,10 @@ def fetch_markets(base_url=FAIRLAY_BASE_URL, qry_params=None):
     if not base_url.endswith('/'):
         base_url += '/'
     url = base_url + json.dumps(params)
-    res = requests.get(url)
-    if res.status_code == 200:
-        n_records = len(res.json())
-        if n_records == MAX_RECORDS:
-            raise ValueError('Did not fetch all records.')
-        dota2_comps = [j for j in res.json()
-                       if re.search("dota", j['Comp'], re.IGNORECASE)]
-        return dota2_comps
-    else:
-        raise Exception(f"Status code is not 200: {res.text}")
+    req = _fetch_fairlay_data(url)
+    n_records = len(req.json())
+    if n_records == MAX_RECORDS:
+        raise ValueError('Did not fetch all records.')
+    dota2_comps = [j for j in req.json()
+                   if re.search("dota", j['Comp'], re.IGNORECASE)]
+    return dota2_comps

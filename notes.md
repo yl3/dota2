@@ -1,5 +1,25 @@
 # Notes
 
+## 2019-09-23
+
+Three important next steps.
+
+* Parameter sweep of >=1,000 matches with likelihood and AUC as a benchmark (as opposed to Fairlay outcome).
+    * When benchmarking, the effect of training matches for prediction accuracy should be evaluated.
+* Make `dota2` an independent package to simplify package loading.
+* Refactor the fairlay submodule and move code related to player matches played or a player's last match inside MatchDF.
+
+As an aside the **memory usage** of SkillsGPMAP.fit() appears to be 1.1 GB for 10,000 matches (the most recent premium + professional matches).
+
+### Amazon instance types (spot pricing)
+
+* `a1.large` has 2 CPUs, 4GB of memory and costs just below \$0.01/h. These instances have an aws graviton processor.
+* `t2` instances depend on [CPU credits](https://aws.amazon.com/ec2/instance-types/). `t3` and `t3a` instances are also burstable.
+* All the `m` type instances cost at least \$0.02/h. `m4.large` has 2 CPUs and 8GB of memory and costs \$0.02/h. The `m5` and `m5a` counterparts have the same specs.
+* `c5.large` costs $0.02/h and has 2 CPUs and 4GB of memory. `c4.large` is similar in price and cost. `c`-series instances have 2.9 GHz Intel Xeon E5-2666 v3 Processors.
+
+The best options seem to be `cx.large` or `a1.large` depending on the speed difference between `a1.large` and `cx.large`.
+
 ## 2019-09-22
 
 ### Information fields to print out in the Fairlay ticker
