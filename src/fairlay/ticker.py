@@ -307,6 +307,7 @@ class FairlayTicker:
             np.where(self.fairlay_df.ev < 0.2,   '***  ',
             np.where(self.fairlay_df.ev < 0.3,   '**** ', '*****'))))) # noqa
 
+        int64 = pd.Int64Dtype()
         out_df = pd.DataFrame(
             {'timestamp': timestamp,
              'TRD': warning_flag.values,
@@ -318,14 +319,18 @@ class FairlayTicker:
              'p_win': self.fairlay_df.pred_win_prob_unknown_side,
              'ev': self.fairlay_df.ev,
              'breakeven_odds': self.fairlay_df.breakeven_odds,
-             'team_1_train':
-                 self.fairlay_df.team_1_n_matches.apply(min),
-             'team_2_train':
-                 self.fairlay_df.team_2_n_matches.apply(min),
-             'team_1_roster_matches': self.fairlay_df.team_1_roster_n_matches,
-             'team_2_roster_matches': self.fairlay_df.team_2_roster_n_matches,
-             'team_1_days_to_prev_match': self.fairlay_df.team_1_prev_game_age,
-             'team_2_days_to_prev_match': self.fairlay_df.team_2_prev_game_age})
+             't1_train':
+                 self.fairlay_df.team_1_n_matches.apply(min).astype(int64),
+             't2_train':
+                 self.fairlay_df.team_2_n_matches.apply(min).astype(int64),
+             't1_roster_xp': self.fairlay_df.team_1_roster_n_matches
+                .astype(int64),
+             't2_roster_xp': self.fairlay_df.team_2_roster_n_matches
+                .astype(int64),
+             't1_prev_match': self.fairlay_df.team_1_prev_game_age
+                .astype(int64),
+             't2_prev_match': self.fairlay_df.team_2_prev_game_age
+                .astype(int64)})
         return out_df
 
 
