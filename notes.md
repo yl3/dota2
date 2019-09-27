@@ -1,5 +1,9 @@
 # Notes
 
+## 2019-09-27
+
+TODO: convert time scale of the covariance function to using the datetime object (Pandas timestamp) instead of the UTC timestamp int.
+
 ## 2019-09-24
 
 Using `c5.large` failed due to lack of free capacity at AWS. A second attempt with `t3.medium` worked with Conda, possibly because this time `apt-get dist-upgrade` was not run.
