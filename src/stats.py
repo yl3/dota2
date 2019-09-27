@@ -262,11 +262,11 @@ class MatchPred(load.MatchDF):
         """Create a Plotly figure showing players' skills."""
         plotly_data = []
         for pid in player_ids:
-            if pid in self.matches.players_mat.columns:
-                match_idx = self.matches.players_mat.loc[:, pid] != 0.0
+            if pid in self.players_mat.columns:
+                match_idx = self.players_mat.loc[:, pid] != 0.0
             else:
-                match_idx = np.repeat(False, self.matches.players_mat.shape[0])
-            player_name = self.matches.players.loc[pid, "name"]
+                match_idx = np.repeat(False, self.players_mat.shape[0])
+            player_name = self.players.loc[pid, "name"]
             skills = self.skills_mat.loc[match_idx, pid]
             hovertext = [x + "</br>{}: {:.3f}".format(player_name, s)
                          for x, s in zip(self.hovertext[match_idx], skills)]
@@ -435,7 +435,7 @@ class MatchPred(load.MatchDF):
         loglik = np.log(np.where(self.df.radiantVictory, pred_win_prob,
                                  1 - pred_win_prob))
         if team_ids is not None:
-            idx = self.matches.loc_team(team_ids)
+            idx = self.loc_team(team_ids)
             loglik = loglik[idx]
         return loglik
 
@@ -453,7 +453,7 @@ class MatchPred(load.MatchDF):
             ~combined_skills.team.duplicated(keep='last')]
         combined_skills = combined_skills.sort_values('skill', ascending=False)
         combined_skills['team_name'] = \
-            self.matches.teams[combined_skills.team].values
+            self.teams[combined_skills.team].values
         combined_skills.set_index('team', inplace=True)
         return combined_skills
 
@@ -470,7 +470,7 @@ class MatchPred(load.MatchDF):
             pandas.DataFrame: A data frame of expected wins between the teams.
             pandas.DataFrame: A data frame of observed wins between the teams.
         """
-        idx = self.matches.loc_team(team_ids, and_operator=True)
+        idx = self.loc_team(team_ids, and_operator=True)
         matches_f = self.df.loc[idx]
         total = (matches_f.groupby(['radiant_name', 'dire_name']).radiantVictory
                  .size().unstack())
@@ -613,8 +613,8 @@ class MatchPred(load.MatchDF):
             prediction (pandas.Series): A row in self.df.
             cur_skills (pandas.Series): A row in self.skills_mat.
         """
-        radi_skills = cur_skills.loc[match.radiant_players]
-        dire_skills = cur_skills.loc[match.dire_players]
+        radi_skills = cur_skills.loc[list(match.radiant_players)]
+        dire_skills = cur_skills.loc[list(match.dire_players)]
         radi_roster = "</br>".join(
             ["{} ({}) | <b>{:.2f}</b>".format(name, id, skill)
              for name, id, skill in zip(match.radiant_nicknames,
