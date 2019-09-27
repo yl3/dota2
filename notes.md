@@ -1,5 +1,9 @@
 # Notes
 
+## 2019-09-24
+
+Using `c5.large` failed due to lack of free capacity at AWS. A second attempt with `t3.medium` worked with Conda, possibly because this time `apt-get dist-upgrade` was not run.
+
 ## 2019-09-23
 
 Three important next steps.
@@ -19,6 +23,8 @@ As an aside the **memory usage** of SkillsGPMAP.fit() appears to be 1.1 GB for 1
 * `c5.large` costs $0.02/h and has 2 CPUs and 4GB of memory. `c4.large` is similar in price and cost. `c`-series instances have 2.9 GHz Intel Xeon E5-2666 v3 Processors.
 
 The best options seem to be `cx.large` or `a1.large` depending on the speed difference between `a1.large` and `cx.large`.
+
+Conda could not work on `t3.medium`. Restarting a new instance using the good old `c5.large`...
 
 ## 2019-09-22
 
