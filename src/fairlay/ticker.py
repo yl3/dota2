@@ -341,11 +341,11 @@ def main():
     ticker.logger.setLevel(logging.INFO)
     out_df = ticker.run().reset_index()
     out_df['comp'] = out_df.comp.str.replace(r'^Dota 2 - ', '')
-    new_cols = (
-        ['timestamp', 'TRD', 'ev_flag', 'comp', 'Title', 'descr', 'wager_type',
-         'norm_runner']
-        + out_df.columns[~out_df.columns.isin(['TRD', 'ev_flag'])].tolist())
-    print(out_df[new_cols].to_string(index=False, header=True))
+    new_cols = ['timestamp', 'TRD', 'ev_flag', 'comp', 'Title', 'descr',
+                'wager_type', 'norm_runner']
+    new_cols = new_cols + list(out_df.columns[~out_df.columns.isin(new_cols)])
+    with pd.option_context('display.max_colwidth', -1):
+        print(out_df[new_cols].to_string(index=False, header=True))
 
 
 if __name__ == '__main__':
