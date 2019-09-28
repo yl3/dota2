@@ -330,7 +330,9 @@ class FairlayTicker:
              't1_prev_match': self.fairlay_df.team_1_prev_game_age
                 .astype(int64),
              't2_prev_match': self.fairlay_df.team_2_prev_game_age
-                .astype(int64)})
+                .astype(int64),
+             't1_players': self.fairlay_df.team_1_players,
+             't2_players': self.fairlay_df.team_2_players})
         return out_df
 
 
