@@ -1,5 +1,14 @@
 # Notes
 
+## 2019-09-29
+
+Based on benchmarking on 1,000 maps through TI9 (fitted series by series), it seems like the optimal logistic scale parameter is between 2 and 4.5, whereas the optimal time scale parameter is apparently between 1.5 and 3 years.
+
+Try the following values next.
+
+* Logistic scale: 2, 2.33, 2.67, 3, 3.3, 3.67, 4, 4.33, 4.67
+* Time scale: 1.25, 1.5, 1.75, 2, 2.25, 2.5, 2.75, 3
+
 ## 2019-09-16
 
 Checked manually why we are getting slightly different Fairlay odds results between the original TI9 Fairlay odds comparison [`notebooks/2019-09-06.fairlay_ti9_full_tourney.ipynb`]() and the new comparison performed using a Fairlay benchmarking notebook [`notebooks/fairlay_benchmarking_template.2019-09-15.ipynb`]().
