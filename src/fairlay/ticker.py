@@ -45,16 +45,22 @@ class FairlayTicker:
     def run(self):
         """Fetch and evaluate current Fairlay information."""
         self.matches, self.fairlay_df = self._fetch_data()
-        self.fairlay_df = self._annotate_fairlay_df()
-        self._fit_model()
-        self.fairlay_df = self.fairlay_df.merge(
-            self._predict_team_1_winprob(), left_index=True, right_index=True)
-        self.fairlay_df = self.fairlay_df.merge(
-            self._compute_ev(
-                self.fairlay_df.pred_win_prob_unknown_side),
-            left_index=True,
-            right_index=True)
-        return self._make_output_df()
+        if self.fairlay_df.shape[0] == 0:
+            output_df = None
+        else:
+            self.fairlay_df = self._annotate_fairlay_df()
+            self._fit_model()
+            self.fairlay_df = self.fairlay_df.merge(
+                self._predict_team_1_winprob(),
+                left_index=True,
+                right_index=True)
+            self.fairlay_df = self.fairlay_df.merge(
+                self._compute_ev(
+                    self.fairlay_df.pred_win_prob_unknown_side),
+                left_index=True,
+                right_index=True)
+            output_df = self._make_output_df()
+        return output_df
 
     def _get_opts(self, user_opts):
         """Return a set of default options."""
@@ -339,13 +345,18 @@ class FairlayTicker:
 def main():
     ticker = FairlayTicker()
     ticker.logger.setLevel(logging.INFO)
-    out_df = ticker.run().reset_index()
-    out_df['comp'] = out_df.comp.str.replace(r'^Dota 2 - ', '')
-    new_cols = ['timestamp', 'TRD', 'ev_flag', 'comp', 'Title', 'descr',
-                'wager_type', 'norm_runner']
-    new_cols = new_cols + list(out_df.columns[~out_df.columns.isin(new_cols)])
-    with pd.option_context('display.max_colwidth', -1):
-        print(out_df[new_cols].to_string(index=False, header=True))
+    out_df = ticker.run()
+    if out_df is None:
+        ticker.logger.info('No Fairlay data.')
+    else:
+        out_df.reset_index(inplace=True)
+        out_df['comp'] = out_df.comp.str.replace(r'^Dota 2 - ', '')
+        new_cols = ['timestamp', 'TRD', 'ev_flag', 'comp', 'Title', 'descr',
+                    'wager_type', 'norm_runner']
+        new_cols = (new_cols
+                    + list(out_df.columns[~out_df.columns.isin(new_cols)]))
+        with pd.option_context('display.max_colwidth', -1):
+            print(out_df[new_cols].to_string(index=False, header=True))
 
 
 if __name__ == '__main__':
