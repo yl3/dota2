@@ -10,12 +10,19 @@ from ..models.gp import SkillsGPMAP
 from . import fairlay_json_to_df, fetch_markets
 
 
+class NoMarketsException(Exception):
+    pass
+
+
 def _fetch_fairlay_data():
     """Fetch and filter Fairlay odds data.
 
     Only keep active non-live single-map markets.
     """
-    fairlay_df = fairlay_json_to_df(fetch_markets())
+    fairlay_json = fetch_markets()
+    if len(fairlay_json) == 0:
+        raise NoMarketsException('No markets available.')
+    fairlay_df = fairlay_json_to_df(fairlay_json)
     sel = ((fairlay_df.dota_market_type == 'map')
            & (fairlay_df.Status == 0))  # Only active and non-live matches
     fairlay_df = fairlay_df.loc[sel].reset_index().set_index(
@@ -345,18 +352,21 @@ class FairlayTicker:
 def main():
     ticker = FairlayTicker()
     ticker.logger.setLevel(logging.INFO)
-    out_df = ticker.run()
-    if out_df is None:
-        ticker.logger.info('No Fairlay data.')
-    else:
-        out_df.reset_index(inplace=True)
-        out_df['comp'] = out_df.comp.str.replace(r'^Dota 2 - ', '')
-        new_cols = ['timestamp', 'TRD', 'ev_flag', 'comp', 'Title', 'descr',
-                    'wager_type', 'norm_runner']
-        new_cols = (new_cols
-                    + list(out_df.columns[~out_df.columns.isin(new_cols)]))
-        with pd.option_context('display.max_colwidth', -1):
-            print(out_df[new_cols].to_string(index=False, header=True))
+    try:
+        out_df = ticker.run()
+        if out_df is None:
+            ticker.logger.info('No Fairlay markets after filtering.')
+        else:
+            out_df.reset_index(inplace=True)
+            out_df['comp'] = out_df.comp.str.replace(r'^Dota 2 - ', '')
+            new_cols = ['timestamp', 'TRD', 'ev_flag', 'comp', 'Title', 'descr',
+                        'wager_type', 'norm_runner']
+            new_cols = (new_cols
+                        + list(out_df.columns[~out_df.columns.isin(new_cols)]))
+            with pd.option_context('display.max_colwidth', -1):
+                print(out_df[new_cols].to_string(index=False, header=True))
+    except NoMarketsException:
+        ticker.logger.info('No Fairlay Dota markets at all.')
 
 
 if __name__ == '__main__':
