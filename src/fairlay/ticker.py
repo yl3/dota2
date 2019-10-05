@@ -23,10 +23,16 @@ def _fetch_fairlay_data():
     if len(fairlay_json) == 0:
         raise NoMarketsException('No markets available.')
     fairlay_df = fairlay_json_to_df(fairlay_json)
+    if any(~fairlay_df.wager_type.isin(['on', 'against'])):
+        raise ValueError('Column "wager_type" contains unexpected values.')
     sel = ((fairlay_df.dota_market_type == 'map')
            & (fairlay_df.Status == 0))  # Only active and non-live matches
-    fairlay_df = fairlay_df.loc[sel].reset_index().set_index(
-        ['ID', 'Title', 'wager_type', 'norm_runner'])
+    fairlay_df = fairlay_df.loc[sel].reset_index()
+
+    # Only keep the best odds of each index.
+    index_cols = ['ID', 'Title', 'wager_type', 'norm_runner']
+    fairlay_df = fairlay_df.groupby(index_cols).apply(
+        lambda df: df.sort_values('odds_c', ascending=False).iloc[0])
     return fairlay_df
 
 
@@ -263,9 +269,10 @@ class FairlayTicker:
                 self.fairlay_df.team_1_pids.loc[~isna],
                 self.fairlay_df.team_2_pids.loc[~isna],
                 self.fairlay_df.ClosD[~isna].astype(np.int64) / 1e6)[0]
-            fairlay_pred = (fairlay_pred.set_index(self.fairlay_df.index[~isna])
-                            .reindex(self.fairlay_df.index))
-            return fairlay_pred.pred_win_prob_unknown_side
+            fairlay_pred = fairlay_pred.set_index(self.fairlay_df.index[~isna])
+            merged = self.fairlay_df.merge(
+                fairlay_pred, 'left', left_index=True, right_index=True)
+            return merged.pred_win_prob_unknown_side
 
     def _compute_ev(self, pred_win_prob):
         """Compute EV etc. between self.fairlay_df and pred_win_prob.
@@ -274,9 +281,7 @@ class FairlayTicker:
             pandas.DataFrame: A data frame with columns for expected value based
                 on commission-adjusted odds and break-even odds.
         """
-        assert (self.fairlay_df.reset_index().wager_type.isin(['on', 'against'])
-                .all())
-        ev = np.where(self.fairlay_df.reset_index().wager_type.values == 'on',
+        ev = np.where(self.fairlay_df.wager_type.values == 'on',
                       pred_win_prob * self.fairlay_df.odds_c - 1,
                       (1 - pred_win_prob) * self.fairlay_df.odds_c - 1)
         breakeven_odds = np.where(
