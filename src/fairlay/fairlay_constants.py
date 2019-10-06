@@ -124,7 +124,8 @@ FAIRLAY_TEAM_NAME_TR = {
     'infamous': 'Infamous Gaming',
     'cdec gaming': 'CDEC',
     'luminous team': 'KG.Luminous',
-    'winstrike': 'Winstrike Team'
+    'winstrike': 'Winstrike Team',
+    'boom esports': 'BOOM ID'
 }
 
 
