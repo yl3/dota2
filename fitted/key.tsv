@@ -43,3 +43,21 @@ ti9_full_new_params_by_series.ts-1.25.*.gz	data/raw/premium_matches.2019-08-31.j
 ti9_full_new_params_by_series.ts-1.5.*.gz	data/raw/premium_matches.2019-08-31.json.gz	11e52df455bd6b86862219c4f9ea17ecbc547286		t3.medium		1.5	3	3	1	4000	1000	0									0.670185	-649.547137
 ti9_full_new_params_by_series.ts-2.*.gz	data/raw/premium_matches.2019-08-31.json.gz	11e52df455bd6b86862219c4f9ea17ecbc547286		t3.medium		2	3	3	1	4000	1000	0									0.670513	-649.294076
 ti9_full_new_params_by_series.ts-3.*.gz	data/raw/premium_matches.2019-08-31.json.gz	11e52df455bd6b86862219c4f9ea17ecbc547286		t3.medium		3	3	3	1	4000	1000	0									0.669688	-649.336656
+ti9_1000_maps_by_series.ls-2.*.gz	data/raw/premium_matches.2019-08-31.json.gz	215f4d7de37bd8d5fe7553b4e7856977a6a7991b	30/09/2019	c4.large	14:30:00	1.25	2	3	1	4000	1000	0									0.666624	-654.219769
+ti9_1000_maps_by_series.ls-2.333.*.gz	data/raw/premium_matches.2019-08-31.json.gz	215f4d7de37bd8d5fe7553b4e7856977a6a7991b	30/09/2019	c4.large	12:00:00	1.25	2.333	3	1	4000	1000	0									0.668318	-651.385326
+ti9_1000_maps_by_series.ls-2.667.*.gz	data/raw/premium_matches.2019-08-31.json.gz	215f4d7de37bd8d5fe7553b4e7856977a6a7991b	01/10/2019	c4.large	12:50:00	1.25	2.667	3	1	4000	1000	0									0.669051	-650.085988
+ti9_1000_maps_by_series.ls-3.*.gz	data/raw/premium_matches.2019-08-31.json.gz	215f4d7de37bd8d5fe7553b4e7856977a6a7991b	01/10/2019	c4.large	12:15:00	1.25	3	3	1	4000	1000	0									0.669452	-649.813906
+ti9_1000_maps_by_series.ls-3.333*.gz	data/raw/premium_matches.2019-08-31.json.gz	215f4d7de37bd8d5fe7553b4e7856977a6a7991b	02/10/2019	c4.large	12:10:00	1.25	3.333	3	1	4000	1000	0									0.669624	-649.713103
+ti9_1000_maps_by_series.ls-3.667*.gz	data/raw/premium_matches.2019-08-31.json.gz	215f4d7de37bd8d5fe7553b4e7856977a6a7991b	02/10/2019	c4.large	11:30:00	1.25	3.667	3	1	4000	1000	0									0.669043	-649.940528
+ti9_1000_maps_by_series.ls-4.*.gz	data/raw/premium_matches.2019-08-31.json.gz	215f4d7de37bd8d5fe7553b4e7856977a6a7991b	03/10/2019	c4.large	11:15:00	1.25	4	3	1	4000	1000	0									0.66807	-650.648446
+ti9_1000_maps_by_series.ls-4.333*.gz	data/raw/premium_matches.2019-08-31.json.gz	215f4d7de37bd8d5fe7553b4e7856977a6a7991b	03/10/2019	c4.large	11:15:00	1.25	4.333	3	1	4000	1000	0									0.668002	-651.315518
+ti9_1000_maps_by_series.ls-4.667.*.gz	data/raw/premium_matches.2019-08-31.json.gz	215f4d7de37bd8d5fe7553b4e7856977a6a7991b	04/10/2019	c4.large	11:00:00	1.25	4.667	3	1	4000	1000	0									0.667109	-652.217778
+ti9_1000_maps_by_series.ts-1.25.*.gz	data/raw/premium_matches.2019-08-31.json.gz	215f4d7de37bd8d5fe7553b4e7856977a6a7991b	30/09/2019	c4.large	11:30:00	1.25	3	3	1	4000	1000	0									0.669452	-649.813906
+ti9_1000_maps_by_series.ts-1.5.*.gz	data/raw/premium_matches.2019-08-31.json.gz	215f4d7de37bd8d5fe7553b4e7856977a6a7991b	30/09/2019	c4.large	12:45:00	1.5	3	3	1	4000	1000	0									0.670405	-649.431415
+ti9_1000_maps_by_series.ts-1.75.*.gz	data/raw/premium_matches.2019-08-31.json.gz	215f4d7de37bd8d5fe7553b4e7856977a6a7991b	01/10/2019	c4.large	15:00:00	1.75	3	3	1	4000	1000	0									0.670497	-649.479222
+ti9_1000_maps_by_series.ts-2.*.gz	data/raw/premium_matches.2019-08-31.json.gz	215f4d7de37bd8d5fe7553b4e7856977a6a7991b	02/10/2019	c4.large	15:45:00	2	3	3	1	4000	1000	0									0.670769	-649.115407
+ti9_1000_maps_by_series.ts-2.25.*.gz	data/raw/premium_matches.2019-08-31.json.gz	215f4d7de37bd8d5fe7553b4e7856977a6a7991b	02/10/2019	c4.large	17:00:00	2.25	3	3	1	4000	1000	0									0.670549	-649.257168
+ti9_1000_maps_by_series.ts-2.5.*.gz	data/raw/premium_matches.2019-08-31.json.gz	215f4d7de37bd8d5fe7553b4e7856977a6a7991b	03/10/2019	c4.large	17:15:00	2.5	3	3	1	4000	1000	0									0.669932	-649.273786
+ti9_1000_maps_by_series.ts-2.75.*.gz	data/raw/premium_matches.2019-08-31.json.gz	215f4d7de37bd8d5fe7553b4e7856977a6a7991b	04/10/2019	c4.large	18:45:00	2.75	3	3	1	4000	1000	0									0.669988	-649.283096
+ti9_1000_maps_by_series.ts-3.*.gz	data/raw/premium_matches.2019-08-31.json.gz	215f4d7de37bd8d5fe7553b4e7856977a6a7991b	04/10/2019	c4.large	12:00:00	3	3	3	1	4000	1000	0									0.669728	-649.28371
+ti9_1000_maps_by_series.ts-3.25.*.gz	data/raw/premium_matches.2019-08-31.json.gz	215f4d7de37bd8d5fe7553b4e7856977a6a7991b	05/10/2019	c4.large	12:30:00	3.25	3	3	1	4000	1000	0									0.66972	-649.376761

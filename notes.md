@@ -1,5 +1,11 @@
 # Notes
 
+## 2019-10-13
+
+After extensive benchmarking by keeping logistic scale at 3.0 and varying time scale and by keeping time scale at 1.25 and varying logistic scale, the optimal parameter combination in terms of both AUC and likelihood is by using a time scale of 2.0 with the previous logistic scale of 3.0 (see [this notebook](reports/benchmarking/ti9_1000_maps_new_params_by_series_fairlay_benchmarking.2019-10-05.ipynb)).
+
+The next step should involve testing different combinations of time and logistic scale around this point.
+
 ## 2019-09-29
 
 Based on benchmarking on 1,000 maps through TI9 (fitted series by series), it seems like the optimal logistic scale parameter is between 2 and 4.5, whereas the optimal time scale parameter is apparently between 1.5 and 3 years.
