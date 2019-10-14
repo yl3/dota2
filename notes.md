@@ -6,6 +6,8 @@ After extensive benchmarking by keeping logistic scale at 3.0 and varying time s
 
 The next step should involve testing different combinations of time and logistic scale around this point.
 
+When combining the premium and professional matches of `premium_matches.2019-10-13.json.gz` and `professional_matches.2019-10-13.json.gz`, the 550 latest matches are played after TI9.
+
 ## 2019-09-29
 
 Based on benchmarking on 1,000 maps through TI9 (fitted series by series), it seems like the optimal logistic scale parameter is between 2 and 4.5, whereas the optimal time scale parameter is apparently between 1.5 and 3 years.

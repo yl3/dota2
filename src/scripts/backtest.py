@@ -21,7 +21,8 @@ def parse_args():
     """Parse arguments."""
     parser = argparse.ArgumentParser(
         description="Generate backtested predictions for each match.")
-    parser.add_argument("matches_json", help="A JSON of matches.")
+    parser.add_argument("matches_json_files",
+                        help="A comma-separated list of JSON files of matches.")
     parser.add_argument("method", help="Fitting method. Currently supported: "
                                        "{'newton'}")
     parser.add_argument("output_prefix", help="Output prefix for predictions.")
@@ -48,14 +49,17 @@ def parse_args():
     return args
 
 
-def load_matches(json_file):
-    """Load the JSON file into a matches data frame."""
-    if json_file.endswith(".gz"):
-        with gzip.open(json_file, 'rb') as fh:
-            matches = load.matches_json_to_df(json.load(fh)['data'])
-    else:
-        with open(json_file) as fh:
-            matches = load.matches_json_to_df(json.load(fh)['data'])
+def load_matches(json_files):
+    """Load a list of JSON files into a matches data frame."""
+    df_list = []
+    for json_file in json_files:
+        if json_file.endswith(".gz"):
+            with gzip.open(json_file, 'rb') as fh:
+                df_list.append(load.matches_json_to_df(json.load(fh)['data']))
+        else:
+            with open(json_file) as fh:
+                df_list.append(load.matches_json_to_df(json.load(fh)['data']))
+    matches = pd.concat(df_list)
     return matches
 
 
@@ -262,7 +266,8 @@ def iterative_newton_fitter(matches, args):
 
 def main():
     args = parse_args()
-    matches = load.MatchDF(load_matches(args.matches_json))
+    json_files = args.matches_json_files.split(',')
+    matches = load.MatchDF(load_matches(json_files))
     if args.method == 'newton':
         predictions, skills_mat, var_df = iterative_newton_fitter(matches, args)
         predictions.to_csv(args.output_prefix + ".win_probs", sep="\t")
